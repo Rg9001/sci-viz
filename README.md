@@ -9,6 +9,7 @@ AI-generated images:
 | `draw_molecules` | Skeletal (line-angle) structures and full reactions from SMILES, with stereo wedges | SmilesDrawer |
 | `plot_functions` | Interactive y = f(x) graphs: tangents, shaded integrals, labeled critical points | math.js and Plotly |
 | `plot_surface` | Rotatable 3D surfaces z = f(x, y) with contour projections | Plotly |
+| `grade_work` | Grades your attempt: score, step-by-step ✓/✗, hint, next practice problem. Math answers are **independently verified** by a math engine; orgo answers show your structure next to the correct one | math.js and SmilesDrawer |
 
 See `examples/` for sample output.
 
@@ -41,13 +42,15 @@ They all run `npm start` as-is.
    - "Show the mechanism products of the E2 of 2-bromobutane with tBuOK"
    - "Graph sin(x)/x from -20 to 20 and shade the area from 0 to π"
    - "Plot z = x² − y² and explain why the origin is a saddle point"
+   - "Grade my work: d/dx sin(3x²) = cos(3x²)" (or upload a photo of your handwritten work)
 
 Tip: add a line to your ChatGPT custom instructions, e.g. "When studying chemistry or math,
-always use SciViz to draw structures and graphs instead of generating images."
+always use SciViz to draw structures and graphs instead of generating images, and use SciViz grade_work whenever I submit my work."
 
 OpenAI renames these menus from time to time. If the steps don't match what you see,
 search their docs for "Apps SDK connect from ChatGPT".
 
 ## Files
 - `server.js`: the MCP server. Defines the tools and the descriptions ChatGPT reads to decide when to use them.
+- `checker.js`: the math engine that verifies derivatives, antiderivatives and simplified answers.
 - `widget.html`: the UI rendered inline in the chat. Supports light and dark mode.

@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { checkMath } from "./checker.js";
 
 const WIDGET_URI = "ui://widget/sciviz-v1.html";
 const widgetHtml = readFileSync(new URL("./widget.html", import.meta.url), "utf8");
@@ -127,6 +128,69 @@ function createServer() {
     content: [{ type: "text", text: `Plotted surface z = ${args.expr}` }],
     structuredContent: { kind: "plot3d", ...args },
   }));
+
+  // ---- Smart grading ----
+  server.registerTool("grade_work", {
+    title: "Grade my work",
+    description:
+      "Grade the student's own attempt at a math or science problem and show a report card. " +
+      "Call this EVERY TIME the user submits their work or an answer (typed or a photo of " +
+      "handwritten work) and wants to know if it is right, for calculus, algebra, physics, " +
+      "general or organic chemistry. First solve the problem yourself carefully, then grade " +
+      "each of the student's steps. Be encouraging but honest; never mark something correct " +
+      "unless it is. Whenever the final answer is an expression (derivative, antiderivative, " +
+      "simplified expression, numeric value) ALWAYS fill mathCheck so a math engine verifies " +
+      "it independently. For orgo, fill structures with the student's and the correct product " +
+      "as SMILES. If the tool reports a math-engine mismatch with your verdict, re-examine and " +
+      "tell the student the corrected result.",
+    inputSchema: {
+      subject: z.string().describe("e.g. 'Calculus I', 'Organic Chemistry'"),
+      problem: z.string().describe("The problem statement"),
+      verdict: z.enum(["correct", "partially_correct", "incorrect"]),
+      score: z.number().min(0).max(100).describe("0-100"),
+      studentAnswer: z.string().describe("The student's final answer, as written"),
+      correctAnswer: z.string().describe("The correct final answer"),
+      steps: z.array(z.object({
+        work: z.string().describe("What the student wrote for this step"),
+        status: z.enum(["correct", "minor_error", "incorrect"]),
+        feedback: z.string().describe("Short explanation; for errors, what went wrong and the fix"),
+      })).max(15).optional(),
+      mathCheck: z.object({
+        mode: z.enum(["equivalent", "derivative", "antiderivative"])
+          .describe("equivalent: student == reference. derivative: student == d/dx(reference = original function). antiderivative: d/dx(student) == reference (= integrand)"),
+        studentExpr: z.string().describe("Student's final expression in math.js syntax, e.g. '3x^2 - 3', 'ln(x) + C'"),
+        referenceExpr: z.string().describe("Reference expression per mode, math.js syntax"),
+        variable: z.string().optional().describe("Default 'x'"),
+      }).optional(),
+      structures: z.object({
+        studentSmiles: z.string().optional(),
+        correctSmiles: z.string().optional(),
+      }).optional().describe("Orgo: draw the student's structure next to the correct one"),
+      keyConcept: z.string().optional().describe("The main idea the problem tests"),
+      hint: z.string().optional().describe("If wrong: a nudge toward the fix without just restating the answer"),
+      nextProblem: z.string().optional().describe("A similar practice problem to try next"),
+    },
+    _meta: {
+      ...widgetMeta,
+      "openai/toolInvocation/invoking": "Grading your work…",
+      "openai/toolInvocation/invoked": "Graded",
+    },
+    annotations: { readOnlyHint: true },
+  }, async (args) => {
+    const check = args.mathCheck ? checkMath(args.mathCheck) : null;
+    let note = "";
+    if (check?.status === "mismatch" && args.verdict === "correct") {
+      note = " WARNING: the math engine disagrees with the 'correct' verdict. Re-check the work and tell the student the corrected result.";
+    } else if (check?.status === "verified" && args.verdict === "incorrect") {
+      note = " NOTE: the math engine found the student's final answer mathematically equivalent to the reference. If you marked it wrong only for form, say so; otherwise re-check.";
+    }
+    return {
+      content: [{ type: "text", text:
+        `Graded: ${args.verdict} (${args.score}/100).` +
+        (check ? ` Math engine: ${check.status} - ${check.detail}` : "") + note }],
+      structuredContent: { kind: "grade", ...args, check },
+    };
+  });
 
   return server;
 }

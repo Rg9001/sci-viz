@@ -25,6 +25,24 @@
   .rxn { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; }
   .rxn svg { width:100%; height:260px; }
   .plot { width:100%; height:420px; }
+  /* ---- Grade report ---- */
+  .g-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+  .g-ring { --c:#16a34a; width:64px; height:64px; border-radius:50%; flex:none; display:grid; place-items:center;
+    background: conic-gradient(var(--c) calc(var(--p)*1%), var(--line) 0); }
+  .g-ring span { width:50px; height:50px; border-radius:50%; background:var(--bg); display:grid; place-items:center;
+    font-weight:700; font-size:16px; }
+  .g-badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; color:#fff; }
+  .g-sub { color:var(--muted); font-size:13px; margin-top:4px; }
+  .g-card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px; width:100%; box-sizing:border-box; }
+  .g-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
+  .g-ans { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .g-mono { font-family: ui-monospace, Menlo, monospace; font-size:14px; word-break:break-word; }
+  .g-check { font-size:13px; padding:8px 12px; border-radius:10px; margin-top:10px; }
+  .g-step { border-left:4px solid var(--c); padding:6px 10px; margin:8px 0; }
+  .g-step .w { font-family: ui-monospace, Menlo, monospace; font-size:13px; }
+  .g-step .f { font-size:13px; color:var(--muted); margin-top:3px; }
+  .g-structs { display:flex; gap:10px; flex-wrap:wrap; }
+  .g-structs .mol svg { height:200px; }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/smiles-drawer@2.1.7/dist/smiles-drawer.min.js"></script>
@@ -131,6 +149,65 @@
       { responsive: true, displaylogo: false });
   }
 
+
+  // ---------- Grading ----------
+  const STATUS = {
+    correct: { c: "#16a34a", icon: "✓", label: "Correct" },
+    partially_correct: { c: "#d97706", icon: "◐", label: "Partially correct" },
+    incorrect: { c: "#e11d48", icon: "✗", label: "Not quite" },
+    minor_error: { c: "#d97706", icon: "!", label: "Minor error" },
+  };
+  const CHECK = {
+    verified: { bg: "#16a34a22", fg: "#16a34a", t: "✓ Verified by math engine" },
+    mismatch: { bg: "#e11d4822", fg: "#e11d48", t: "✗ Math engine found a difference" },
+    inconclusive: { bg: "#d9770622", fg: "#d97706", t: "? Not auto-verifiable" },
+    error: { bg: "#d9770622", fg: "#d97706", t: "? Couldn't auto-verify" },
+  };
+
+  function drawGrade(d) {
+    const st = STATUS[d.verdict] || STATUS.incorrect, e = escapeHtml;
+    const ringColor = d.score >= 85 ? "#16a34a" : d.score >= 50 ? "#d97706" : "#e11d48";
+    let h = `<div style="width:100%">
+      <div class="g-head">
+        <div class="g-ring" style="--p:${Math.round(d.score)};--c:${ringColor}"><span>${Math.round(d.score)}</span></div>
+        <div><span class="g-badge" style="background:${st.c}">${st.icon} ${st.label}</span>
+          <div class="g-sub">${e(d.subject || "")}${d.keyConcept ? " · " + e(d.keyConcept) : ""}</div></div>
+      </div>
+      <div class="g-card"><div class="g-label">Problem</div><div>${e(d.problem)}</div></div>
+      <div class="g-card"><div class="g-ans">
+        <div><div class="g-label">Your answer</div><div class="g-mono" style="color:${st.c}">${e(d.studentAnswer)}</div></div>
+        <div><div class="g-label">Correct answer</div><div class="g-mono">${e(d.correctAnswer)}</div></div>
+      </div>`;
+    if (d.check) {
+      const c = CHECK[d.check.status] || CHECK.error;
+      h += `<div class="g-check" style="background:${c.bg};color:${c.fg}"><b>${c.t}</b><br><span style="color:var(--fg)">${e(d.check.detail)}</span></div>`;
+    }
+    h += `</div>`;
+    if (d.structures && (d.structures.studentSmiles || d.structures.correctSmiles)) {
+      h += `<div class="g-card"><div class="g-label">Structures</div><div class="g-structs">` +
+        (d.structures.studentSmiles ? `<div class="mol"><svg id="g-s"></svg><div class="name">Yours</div></div>` : "") +
+        (d.structures.correctSmiles ? `<div class="mol"><svg id="g-c"></svg><div class="name">Correct</div></div>` : "") +
+        `</div></div>`;
+    }
+    if (d.steps && d.steps.length) {
+      h += `<div class="g-card"><div class="g-label">Step by step</div>` + d.steps.map((s, i) => {
+        const ss = STATUS[s.status] || STATUS.incorrect;
+        return `<div class="g-step" style="--c:${ss.c}"><div class="w"><b style="color:${ss.c}">${ss.icon}</b> ${i + 1}. ${e(s.work)}</div><div class="f">${e(s.feedback)}</div></div>`;
+      }).join("") + `</div>`;
+    }
+    if (d.hint) h += `<div class="g-card"><div class="g-label">💡 Hint</div><div>${e(d.hint)}</div></div>`;
+    if (d.nextProblem) h += `<div class="g-card"><div class="g-label">🎯 Try this next</div><div>${e(d.nextProblem)}</div></div>`;
+    h += `</div>`;
+    $("stage").innerHTML = h;
+
+    if (d.structures) {
+      const drawer = new SmilesDrawer.SmiDrawer({ bondThickness: 1.2, fontSizeLarge: 11, fontSizeSmall: 8 });
+      const theme = dark() ? "dark" : "light";
+      if (d.structures.studentSmiles) drawer.draw(d.structures.studentSmiles, "#g-s", theme, null, (er) => showError("Your structure: " + er));
+      if (d.structures.correctSmiles) drawer.draw(d.structures.correctSmiles, "#g-c", theme, null, (er) => showError("Correct structure: " + er));
+    }
+  }
+
   function axis(title, range) {
     const c = dark() ? "#3a3a3d" : "#e3e5e8";
     return { title, range, gridcolor: c, zerolinecolor: dark() ? "#888" : "#999", zerolinewidth: 1.5 };
@@ -163,6 +240,7 @@
       if (data.kind === "molecules") drawMolecules(data);
       else if (data.kind === "plot2d") plot2D(data);
       else if (data.kind === "plot3d") plot3D(data);
+      else if (data.kind === "grade") drawGrade(data);
     } catch (e) { showError(String(e && e.message || e)); }
   }
 
