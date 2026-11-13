@@ -1,0 +1,172 @@
+<meta charset="utf-8">
+<div id="root">
+  <div id="title"></div>
+  <div id="stage"></div>
+  <div id="caption"></div>
+  <div id="err"></div>
+</div>
+
+<style>
+  :root { --bg:#ffffff; --fg:#1d1d1f; --muted:#6e6e73; --card:#f6f7f9; --line:#e3e5e8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1e1e20; --fg:#f2f2f2; --muted:#a1a1a6; --card:#2a2a2d; --line:#3a3a3d; }
+  }
+  html, body { margin:0; background:var(--bg); color:var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #root { padding:14px; }
+  #title { font-weight:600; font-size:15px; margin-bottom:8px; }
+  #caption { color:var(--muted); font-size:13px; margin-top:8px; line-height:1.4; }
+  #err { color:#d70015; font-size:13px; white-space:pre-wrap; }
+  #stage { display:flex; flex-wrap:wrap; gap:12px; }
+  .mol { background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:10px; flex:1 1 240px; min-width:220px; text-align:center; }
+  .mol svg { width:100%; height:240px; }
+  .mol .name { font-size:13px; color:var(--muted); margin-top:4px; }
+  .rxn { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; }
+  .rxn svg { width:100%; height:260px; }
+  .plot { width:100%; height:420px; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/smiles-drawer@2.1.7/dist/smiles-drawer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mathjs@13.2.0/lib/browser/math.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const dark = () => (window.openai && window.openai.theme
+    ? window.openai.theme === "dark"
+    : window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const PALETTE = ["#2563eb", "#e11d48", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+
+  function showError(msg) { $("err").textContent = msg; }
+
+  // ---------- Chemistry ----------
+  function drawMolecules(data) {
+    const stage = $("stage");
+    const drawer = new SmilesDrawer.SmiDrawer({
+      compactDrawing: false,
+      explicitHydrogens: !!data.explicitHydrogens,
+      terminalCarbons: !!data.terminalCarbons,
+      bondThickness: 1.2,
+      fontSizeLarge: 11,
+      fontSizeSmall: 8,
+    });
+    const theme = dark() ? "dark" : "light";
+
+    (data.molecules || []).forEach((m, i) => {
+      const isRxn = m.smiles.includes(">");
+      const box = document.createElement("div");
+      box.className = isRxn ? "rxn" : "mol";
+      const svgId = "s" + i;
+      box.innerHTML = `<svg id="${svgId}" data-smiles=""></svg>` +
+        (m.name ? `<div class="name">${escapeHtml(m.name)}</div>` : "") +
+        (m.conditions ? `<div class="name">Conditions: ${escapeHtml(m.conditions)}</div>` : "");
+      stage.appendChild(box);
+      drawer.draw(m.smiles, "#" + svgId, theme, null,
+        (e) => showError(`Could not parse SMILES for ${m.name || m.smiles}: ${e}`));
+    });
+  }
+
+  // ---------- Math ----------
+  function plot2D(data) {
+    const div = document.createElement("div");
+    div.className = "plot";
+    $("stage").appendChild(div);
+    const [x0, x1] = [data.xMin ?? -10, data.xMax ?? 10];
+    const N = 800, traces = [];
+
+    (data.functions || []).forEach((f, i) => {
+      const code = math.compile(f.expr);
+      const xs = [], ys = [];
+      for (let k = 0; k <= N; k++) {
+        const x = x0 + (x1 - x0) * k / N;
+        let y;
+        try { y = code.evaluate({ x }); } catch { y = NaN; }
+        if (typeof y !== "number" || !isFinite(y) || Math.abs(y) > 1e6) y = null; // break at asymptotes
+        xs.push(x); ys.push(y);
+      }
+      const color = PALETTE[i % PALETTE.length];
+      traces.push({ x: xs, y: ys, mode: "lines", name: f.label || `y = ${f.expr}`,
+        line: { color, width: 2.5, dash: f.dashed ? "dash" : "solid" } });
+
+      // optional shaded area (integral) for this function
+      if (f.shadeFrom != null && f.shadeTo != null) {
+        const sx = [], sy = [];
+        for (let k = 0; k <= 300; k++) {
+          const x = f.shadeFrom + (f.shadeTo - f.shadeFrom) * k / 300;
+          sx.push(x); sy.push(code.evaluate({ x }));
+        }
+        traces.push({ x: sx, y: sy, fill: "tozeroy", mode: "none", showlegend: false,
+          fillcolor: color + "33", hoverinfo: "skip" });
+      }
+    });
+
+    (data.points || []).forEach((p) => traces.push({
+      x: [p.x], y: [p.y], mode: "markers+text", text: [p.label || ""], textposition: "top right",
+      marker: { size: 9, color: dark() ? "#fff" : "#111" }, showlegend: false }));
+
+    Plotly.newPlot(div, traces, layout(data, {
+      xaxis: axis(data.xLabel || "x", [x0, x1]),
+      yaxis: axis(data.yLabel || "y", data.yMin != null && data.yMax != null ? [data.yMin, data.yMax] : undefined),
+    }), { responsive: true, displaylogo: false });
+  }
+
+  function plot3D(data) {
+    const div = document.createElement("div");
+    div.className = "plot";
+    div.style.height = "480px";
+    $("stage").appendChild(div);
+    const code = math.compile(data.expr);
+    const [x0, x1, y0, y1] = [data.xMin ?? -5, data.xMax ?? 5, data.yMin ?? -5, data.yMax ?? 5];
+    const n = 80, xs = [], ys = [], zs = [];
+    for (let i = 0; i <= n; i++) xs.push(x0 + (x1 - x0) * i / n);
+    for (let j = 0; j <= n; j++) ys.push(y0 + (y1 - y0) * j / n);
+    for (const y of ys) zs.push(xs.map((x) => {
+      try { const z = code.evaluate({ x, y }); return isFinite(z) ? z : null; } catch { return null; }
+    }));
+    Plotly.newPlot(div, [{ type: "surface", x: xs, y: ys, z: zs, colorscale: "Viridis",
+      contours: { z: { show: true, usecolormap: true, project: { z: true } } } }],
+      layout(data, { scene: { xaxis: { title: "x" }, yaxis: { title: "y" }, zaxis: { title: "z" } } }),
+      { responsive: true, displaylogo: false });
+  }
+
+  function axis(title, range) {
+    const c = dark() ? "#3a3a3d" : "#e3e5e8";
+    return { title, range, gridcolor: c, zerolinecolor: dark() ? "#888" : "#999", zerolinewidth: 1.5 };
+  }
+  function layout(data, extra) {
+    return Object.assign({
+      margin: { l: 50, r: 20, t: 10, b: 45 },
+      paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+      font: { color: dark() ? "#f2f2f2" : "#1d1d1f" },
+      legend: { orientation: "h", y: -0.18 },
+    }, extra);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---------- Entry ----------
+  let lastKey = null;
+  function render() {
+    const data = window.openai && window.openai.toolOutput;
+    if (!data) return;
+    const key = JSON.stringify(data);
+    if (key === lastKey) return;
+    lastKey = key;
+    $("stage").innerHTML = ""; $("err").textContent = "";
+    $("title").textContent = data.title || "";
+    $("caption").textContent = data.caption || "";
+    try {
+      if (data.kind === "molecules") drawMolecules(data);
+      else if (data.kind === "plot2d") plot2D(data);
+      else if (data.kind === "plot3d") plot3D(data);
+    } catch (e) { showError(String(e && e.message || e)); }
+  }
+
+  render();
+  window.addEventListener("openai:set_globals", render);
+})();
+</script>
