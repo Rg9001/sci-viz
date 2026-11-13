@@ -25,6 +25,35 @@
   .rxn { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; }
   .rxn svg { width:100%; height:260px; }
   .plot { width:100%; height:420px; }
+  /* ---- Progress ---- */
+  .p-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:10px; }
+  @media (max-width:520px){ .p-tiles { grid-template-columns:repeat(2,1fr); } }
+  .p-tile { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .p-tile .v { font-size:24px; font-weight:700; }
+  .p-tile .l { font-size:12px; color:var(--muted); }
+  .p-row { display:grid; grid-template-columns:minmax(90px,1.2fr) 3fr 44px; align-items:center; gap:10px; margin:7px 0; font-size:13px; }
+  .p-bar { height:10px; background:var(--line); border-radius:6px; overflow:hidden; }
+  .p-bar > div { height:100%; border-radius:6px; }
+  .p-act { display:grid; grid-template-columns:repeat(14,1fr); gap:4px; }
+  .p-act div { aspect-ratio:1; border-radius:4px; }
+  .p-recent { font-size:13px; display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .p-recent:last-child { border-bottom:none; }
+  /* ---- Mechanism ---- */
+  .m-step { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 14px; width:100%; box-sizing:border-box; }
+  .m-step svg { width:100%; height:230px; }
+  .m-label { font-weight:600; font-size:14px; }
+  .m-note { font-size:13px; color:var(--muted); margin-top:2px; }
+  .m-down { width:100%; text-align:center; font-size:22px; color:var(--muted); line-height:1; margin:-4px 0; }
+  /* ---- Animations ---- */
+  .a-ctrl { display:flex; align-items:center; gap:10px; margin-top:6px; flex-wrap:wrap; }
+  .a-ctrl button { background:#2563eb; color:#fff; border:none; border-radius:999px; padding:6px 14px; font-weight:600; cursor:pointer; }
+  .a-ctrl input[type=range] { flex:1; min-width:140px; accent-color:#2563eb; }
+  .a-ctrl select { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:4px 6px; }
+  .a-read { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+  .a-read div { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px 10px; font-size:13px; }
+  .a-read b { font-family: ui-monospace, Menlo, monospace; }
+  .a-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; font-family: ui-monospace, Menlo, monospace; }
+  .a-table td, .a-table th { border-bottom:1px solid var(--line); padding:3px 6px; text-align:right; }
   /* ---- Grade report ---- */
   .g-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
   .g-ring { --c:#16a34a; width:64px; height:64px; border-radius:50%; flex:none; display:grid; place-items:center;
@@ -208,6 +237,223 @@
     }
   }
 
+
+  // ---------- Progress dashboard ----------
+  const scoreColor = (v) => v >= 85 ? "#16a34a" : v >= 65 ? "#d97706" : "#e11d48";
+  function drawProgress(d) {
+    const e = escapeHtml;
+    if (!d.total) {
+      $("stage").innerHTML = `<div class="g-card">No graded work yet. Send some practice problems to get graded, and your progress will show up here.</div>`;
+      return;
+    }
+    const tile = (v, l) => `<div class="p-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+    let h = `<div style="width:100%"><div class="p-tiles">` +
+      tile(d.total, "Problems graded") + tile(`<span style="color:${scoreColor(d.avgScore)}">${d.avgScore}</span>`, "Average score") +
+      tile(d.accuracy + "%", "Fully correct") + tile((d.streak ? "🔥 " : "") + d.streak, "Day streak") + `</div>`;
+    if (d.weakTopics.length) {
+      h += `<div class="g-card" style="border-color:#e11d4855"><div class="g-label">🎯 Focus on these</div>` +
+        d.weakTopics.map((t) => `<div class="p-row"><div>${e(t.topic)}</div><div class="p-bar"><div style="width:${t.avg}%;background:${scoreColor(t.avg)}"></div></div><div style="text-align:right">${t.avg}</div></div>`).join("") + `</div>`;
+    }
+    h += `<div class="g-card"><div class="g-label">All topics</div>` + d.topics.map((t) => {
+      const tr = t.trend > 3 ? `<span style="color:#16a34a">▲</span>` : t.trend < -3 ? `<span style="color:#e11d48">▼</span>` : "";
+      return `<div class="p-row"><div>${e(t.topic)} <span style="color:var(--muted)">×${t.attempts}</span> ${tr}</div><div class="p-bar"><div style="width:${t.avg}%;background:${scoreColor(t.avg)}"></div></div><div style="text-align:right">${t.avg}</div></div>`;
+    }).join("") + `</div>`;
+    const maxC = Math.max(1, ...d.activity.map((a) => a.count));
+    h += `<div class="g-card"><div class="g-label">Last 14 days</div><div class="p-act">` +
+      d.activity.map((a) => `<div title="${a.day}: ${a.count}" style="background:${a.count ? `rgba(37,99,235,${0.25 + 0.75 * a.count / maxC})` : "var(--line)"}"></div>`).join("") + `</div></div>`;
+    h += `<div class="g-card"><div class="g-label">Recent</div>` + d.recent.map((r) =>
+      `<div class="p-recent"><div>${e(r.topic || r.subject)}<div style="color:var(--muted);font-size:12px">${e(r.problem)}</div></div><div style="color:${scoreColor(r.score)};font-weight:700">${r.score}</div></div>`).join("") + `</div>`;
+    if (!d.persistent) h += `<div class="g-sub">Note: history is stored temporarily and resets when the server restarts.</div>`;
+    $("stage").innerHTML = h + `</div>`;
+  }
+
+  // ---------- Mechanisms ----------
+  function drawMechanism(d) {
+    const stage = $("stage"), theme = dark() ? "dark" : "light";
+    const arrowColor = dark() ? "#ff6b81" : "#e11d48";
+    d.steps.forEach((step, si) => {
+      if (si > 0) { const dn = document.createElement("div"); dn.className = "m-down"; dn.textContent = "↓"; stage.appendChild(dn); }
+      const box = document.createElement("div");
+      box.className = "m-step";
+      box.innerHTML = (step.label ? `<div class="m-label">${escapeHtml(step.label)}</div>` : "") +
+        `<svg id="m${si}"></svg>` + (step.note ? `<div class="m-note">${escapeHtml(step.note)}</div>` : "");
+      stage.appendChild(box);
+      const svg = box.querySelector("svg");
+      const drawer = new SmilesDrawer.SvgDrawer({ bondThickness: 1.2, fontSizeLarge: 11, fontSizeSmall: 8 });
+      SmilesDrawer.parse(step.smiles, (tree) => {
+        try {
+          drawer.draw(tree, svg, theme, null);
+          overlayArrows(svg, drawer.preprocessor.graph.vertices, step.arrows || [], arrowColor, d.showAtomNumbers, si);
+        } catch (er) { showError(`Step ${si + 1}: ${er.message || er}`); }
+      }, (er) => showError(`Step ${si + 1}: couldn't parse SMILES "${step.smiles}": ${er}`));
+    });
+  }
+
+  function overlayArrows(svg, verts, arrows, color, numbers, si) {
+    const NS = "http://www.w3.org/2000/svg";
+    const P = (i) => { const v = verts[i]; if (!v) throw new Error(`atom index ${i} doesn't exist (only ${verts.length} atoms)`); return { x: v.position.x, y: v.position.y }; };
+    const cx = verts.reduce((s, v) => s + v.position.x, 0) / verts.length;
+    const cy = verts.reduce((s, v) => s + v.position.y, 0) / verts.length;
+    const pt = (ref) => Array.isArray(ref) ? (([a, b]) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }))([P(ref[0]), P(ref[1])]) : P(ref);
+
+    const defs = document.createElementNS(NS, "defs");
+    defs.innerHTML = `<marker id="ah${si}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${color}"/></marker>
+      <marker id="fh${si}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse"><path d="M0,5 L10,5 L0,0 z" fill="${color}"/></marker>`;
+    svg.appendChild(defs);
+
+    let [minX, minY, w, h] = svg.getAttribute("viewBox").split(" ").map(Number);
+    let maxX = minX + w, maxY = minY + h;
+    const grow = (p) => { minX = Math.min(minX, p.x - 8); maxX = Math.max(maxX, p.x + 8); minY = Math.min(minY, p.y - 8); maxY = Math.max(maxY, p.y + 8); };
+
+    const unit = (x, y) => { const L = Math.hypot(x, y) || 1; return { x: x / L, y: y / L }; };
+    const away = (p, n) => ((p.x + n.x - cx) ** 2 + (p.y + n.y - cy) ** 2 >= (p.x - n.x - cx) ** 2 + (p.y - n.y - cy) ** 2) ? n : { x: -n.x, y: -n.y };
+    arrows.forEach((ar) => {
+      let a, b;
+      const bondFrom = Array.isArray(ar.from), bondTo = Array.isArray(ar.to);
+      if (bondFrom && !bondTo && ar.from.includes(ar.to)) {
+        // Bond breaking toward one of its own atoms: arc from the bond's side to the far side of that atom.
+        const p = P(ar.from[0]), q = P(ar.from[1]), t = P(ar.to), other = ar.from[0] === ar.to ? q : p;
+        const n = away({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }, unit(-(q.y - p.y), q.x - p.x));
+        const along = unit(t.x - other.x, t.y - other.y);
+        a = { x: (p.x + q.x) / 2 + 4 * n.x, y: (p.y + q.y) / 2 + 4 * n.y };
+        b = { x: t.x + 9 * n.x + 6 * along.x, y: t.y + 9 * n.y + 6 * along.y };
+      } else {
+        a = pt(ar.from); b = pt(ar.to);
+        if (!bondFrom) { const u = away(a, unit(a.x - cx, a.y - cy)); a = { x: a.x + 8 * u.x, y: a.y + 8 * u.y }; }
+        if (bondFrom) { const p = P(ar.from[0]), q = P(ar.from[1]); const n = away(a, unit(-(q.y - p.y), q.x - p.x)); a = { x: a.x + 4 * n.x, y: a.y + 4 * n.y }; }
+        const u = unit(b.x - a.x, b.y - a.y);
+        if (!bondTo) b = { x: b.x - 9 * u.x, y: b.y - 9 * u.y };
+      }
+      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const n = away(mid, { x: -dy / L, y: dx / L });
+      const bend = Math.max(10, 0.4 * L);
+      const c = { x: mid.x + n.x * bend, y: mid.y + n.y * bend };
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("d", `M${a.x},${a.y} Q${c.x},${c.y} ${b.x},${b.y}`);
+      path.setAttribute("fill", "none"); path.setAttribute("stroke", color); path.setAttribute("stroke-width", "1.6");
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("marker-end", `url(#${ar.type === "fishhook" ? "fh" : "ah"}${si})`);
+      svg.appendChild(path);
+      grow(a); grow(b); grow({ x: (a.x + 2 * c.x + b.x) / 4, y: (a.y + 2 * c.y + b.y) / 4 });
+    });
+
+    // SmilesDrawer hides charges on unlabeled carbons; draw them (e.g. carbocations, carbanions).
+    verts.forEach((v) => {
+      const ch = v.value.bracket && v.value.bracket.charge;
+      if (v.value.element !== "C" || !ch) return;
+      const u = away(v.position, unit(v.position.x - cx || 0.3, v.position.y - cy || -1));
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("x", v.position.x + 8 * u.x); t.setAttribute("y", v.position.y + 8 * u.y + 3);
+      t.setAttribute("font-size", "10"); t.setAttribute("text-anchor", "middle"); t.setAttribute("font-weight", "700");
+      t.setAttribute("fill", dark() ? "#f2f2f2" : "#1d1d1f");
+      t.textContent = ch > 0 ? (ch > 1 ? ch + "+" : "+") : (ch < -1 ? -ch + "−" : "−");
+      svg.appendChild(t);
+    });
+
+    if (numbers) verts.forEach((v, i) => {
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("x", v.position.x + 5); t.setAttribute("y", v.position.y - 5);
+      t.setAttribute("font-size", "7"); t.setAttribute("fill", "#2563eb"); t.textContent = i;
+      svg.appendChild(t);
+    });
+    svg.setAttribute("viewBox", `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
+  }
+
+  // ---------- Animations ----------
+  function drawAnimation(d) {
+    const f = math.compile(d.expr);
+    const F = (x) => { try { const y = f.evaluate({ x }); return typeof y === "number" && isFinite(y) ? y : NaN; } catch { return NaN; } };
+    const wrap = document.createElement("div"); wrap.style.width = "100%";
+    wrap.innerHTML = `<div class="plot" style="height:380px"></div><div class="a-ctrl"><button>▶ Play</button><input type="range"><span class="a-lab" style="font-size:13px;min-width:90px"></span></div><div class="a-read"></div><div class="a-extra"></div>`;
+    $("stage").appendChild(wrap);
+    const plot = wrap.querySelector(".plot"), btn = wrap.querySelector("button"), slider = wrap.querySelector("input"),
+      lab = wrap.querySelector(".a-lab"), read = wrap.querySelector(".a-read"), extra = wrap.querySelector(".a-extra");
+    const curve = (x0, x1) => { const xs = [], ys = []; for (let k = 0; k <= 600; k++) { const x = x0 + (x1 - x0) * k / 600; xs.push(x); const y = F(x); ys.push(isNaN(y) || Math.abs(y) > 1e6 ? null : y); } return { x: xs, y: ys }; };
+    const fmt = (v) => (isFinite(v) ? (+v.toPrecision(7)).toString() : "undefined");
+    const base = { mode: "lines", line: { color: "#2563eb", width: 2.5 }, name: `f(x) = ${d.expr}` };
+    const lay = (extraL) => layout(d, Object.assign({ showlegend: false, xaxis: axis("x"), yaxis: axis("y") }, extraL));
+    let setStep;
+
+    if (d.type === "riemann") {
+      const a = d.a ?? 0, b = d.b ?? 1, pad = (b - a) * 0.15;
+      const x0 = d.xMin ?? a - pad, x1 = d.xMax ?? b + pad;
+      // exact via Simpson
+      let exact = 0; const N = 2000, hh = (b - a) / N;
+      for (let i = 0; i <= N; i++) exact += F(a + i * hh) * (i === 0 || i === N ? 1 : i % 2 ? 4 : 2);
+      exact *= hh / 3;
+      extra.innerHTML = `<div class="a-ctrl"><span style="font-size:13px">Method</span><select>${["left", "right", "midpoint", "trapezoid"].map((m) => `<option ${m === (d.method || "midpoint") ? "selected" : ""}>${m}</option>`).join("")}</select></div>`;
+      const sel = extra.querySelector("select");
+      slider.min = 1; slider.max = 60; slider.value = 4;
+      const c = curve(x0, x1);
+      setStep = () => {
+        const n = +slider.value, m = sel.value, dx = (b - a) / n;
+        const px = [], py = [], nx = [], ny = []; let sum = 0;
+        for (let i = 0; i < n; i++) {
+          const l = a + i * dx, r = l + dx;
+          let poly;
+          if (m === "trapezoid") { const yl = F(l), yr = F(r); sum += (yl + yr) / 2 * dx; poly = [[l, 0], [l, yl], [r, yr], [r, 0], [l, 0]]; }
+          else { const xs = m === "left" ? l : m === "right" ? r : (l + r) / 2, y = F(xs); sum += y * dx; poly = [[l, 0], [l, y], [r, y], [r, 0], [l, 0]]; }
+          const pos = poly[1][1] + poly[2][1] >= 0, X = pos ? px : nx, Y = pos ? py : ny;
+          poly.forEach(([x, y]) => { X.push(x); Y.push(y); }); X.push(null); Y.push(null);
+        }
+        Plotly.react(plot, [
+          { x: px, y: py, fill: "toself", mode: "lines", line: { color: "#16a34a", width: 1 }, fillcolor: "#16a34a44", hoverinfo: "skip" },
+          { x: nx, y: ny, fill: "toself", mode: "lines", line: { color: "#e11d48", width: 1 }, fillcolor: "#e11d4844", hoverinfo: "skip" },
+          Object.assign({}, base, c)], lay({ xaxis: axis("x", [x0, x1]) }), { displaylogo: false, responsive: true });
+        lab.textContent = `n = ${n}`;
+        read.innerHTML = `<div>${m} sum: <b>${fmt(sum)}</b></div><div>exact ∫: <b>${fmt(exact)}</b></div><div>error: <b>${fmt(Math.abs(sum - exact))}</b></div>`;
+      };
+      sel.onchange = setStep;
+    } else if (d.type === "secant_tangent") {
+      const x0p = d.x0 ?? 1, x0 = d.xMin ?? x0p - 4, x1 = d.xMax ?? x0p + 4, y0 = F(x0p);
+      let slopeT; try { slopeT = math.derivative(d.expr, "x").evaluate({ x: x0p }); } catch { slopeT = (F(x0p + 1e-6) - F(x0p - 1e-6)) / 2e-6; }
+      const c = curve(x0, x1), ys = c.y.filter((v) => v != null), yr = [Math.min(...ys), Math.max(...ys)], ypad = (yr[1] - yr[0]) * 0.1 || 1;
+      slider.min = 0; slider.max = 100; slider.value = 0;
+      setStep = () => {
+        const h = 3 * Math.pow(10, -3.5 * slider.value / 100), x1q = x0p + h, y1 = F(x1q), m = (y1 - y0) / h;
+        const L = (m_, col, dash) => ({ x: [x0, x1], y: [y0 + m_ * (x0 - x0p), y0 + m_ * (x1 - x0p)], mode: "lines", line: { color: col, width: 2, dash }, hoverinfo: "skip" });
+        Plotly.react(plot, [Object.assign({}, base, c), L(slopeT, "#16a34a", "dash"), L(m, "#e11d48", "solid"),
+          { x: [x0p, x1q], y: [y0, y1], mode: "markers+text", text: ["P", "Q"], textposition: "top left", marker: { size: 10, color: ["#111", "#e11d48"] } }],
+          lay({ xaxis: axis("x", [x0, x1]), yaxis: axis("y", [yr[0] - ypad, yr[1] + ypad]) }), { displaylogo: false, responsive: true });
+        lab.textContent = `h = ${fmt(h)}`;
+        read.innerHTML = `<div style="color:#e11d48">secant slope: <b>${fmt(m)}</b></div><div style="color:#16a34a">tangent slope f′(${x0p}): <b>${fmt(slopeT)}</b></div><div>difference: <b>${fmt(Math.abs(m - slopeT))}</b></div>`;
+      };
+    } else {
+      const x0p = d.x0 ?? 0, x0 = d.xMin ?? x0p - 3, x1 = d.xMax ?? x0p + 3, fx0 = F(x0p);
+      const c = curve(x0, x1);
+      slider.min = 0; slider.max = 100; slider.value = 0;
+      const rows = [1, 0.1, 0.01, 0.001, 0.0001];
+      setStep = () => {
+        const dd = 2 * Math.pow(10, -4 * slider.value / 100), xl = x0p - dd, xr = x0p + dd, yl = F(xl), yr = F(xr);
+        const est = (yl + yr) / 2;
+        const traces = [Object.assign({}, base, c),
+          { x: [xl, xr], y: [yl, yr], mode: "markers", marker: { size: 11, color: ["#7c3aed", "#d97706"] }, hoverinfo: "x+y" },
+          { x: [xl, xl, null, xr, xr], y: [0, yl, null, 0, yr], mode: "lines", line: { color: "#999", dash: "dot", width: 1 }, hoverinfo: "skip" }];
+        if (isNaN(fx0) && isFinite(est)) traces.push({ x: [x0p], y: [est], mode: "markers", marker: { size: 11, color: "rgba(0,0,0,0)", line: { color: "#2563eb", width: 2 } }, hoverinfo: "skip" });
+        else if (isFinite(fx0) && Math.abs(fx0 - est) > 1e-3 * Math.max(1, Math.abs(est))) traces.push({ x: [x0p], y: [fx0], mode: "markers", marker: { size: 9, color: "#2563eb" } });
+        Plotly.react(plot, traces, lay({ xaxis: axis("x", [x0, x1]) }), { displaylogo: false, responsive: true });
+        lab.textContent = `distance = ${fmt(dd)}`;
+        read.innerHTML = `<div style="color:#7c3aed">f(${fmt(xl)}) = <b>${fmt(yl)}</b></div><div style="color:#d97706">f(${fmt(xr)}) = <b>${fmt(yr)}</b></div><div>f(${x0p}) = <b>${fmt(fx0)}</b></div>`;
+      };
+      extra.innerHTML = `<table class="a-table"><tr><th>x → ${x0p}⁻</th><th>f(x)</th><th>x → ${x0p}⁺</th><th>f(x)</th></tr>` +
+        rows.map((r) => `<tr><td>${fmt(x0p - r)}</td><td>${fmt(F(x0p - r))}</td><td>${fmt(x0p + r)}</td><td>${fmt(F(x0p + r))}</td></tr>`).join("") + `</table>`;
+    }
+
+    slider.oninput = setStep;
+    let timer = null;
+    btn.onclick = () => {
+      if (timer) { clearInterval(timer); timer = null; btn.textContent = "▶ Play"; return; }
+      if (+slider.value >= +slider.max) slider.value = slider.min;
+      btn.textContent = "❚❚ Pause";
+      timer = setInterval(() => {
+        slider.value = +slider.value + 1; setStep();
+        if (+slider.value >= +slider.max) { clearInterval(timer); timer = null; btn.textContent = "▶ Replay"; }
+      }, d.type === "riemann" ? 220 : 60);
+    };
+    setStep();
+  }
+
   function axis(title, range) {
     const c = dark() ? "#3a3a3d" : "#e3e5e8";
     return { title, range, gridcolor: c, zerolinecolor: dark() ? "#888" : "#999", zerolinewidth: 1.5 };
@@ -241,6 +487,9 @@
       else if (data.kind === "plot2d") plot2D(data);
       else if (data.kind === "plot3d") plot3D(data);
       else if (data.kind === "grade") drawGrade(data);
+      else if (data.kind === "progress") drawProgress(data);
+      else if (data.kind === "mechanism") drawMechanism(data);
+      else if (data.kind === "animate") drawAnimation(data);
     } catch (e) { showError(String(e && e.message || e)); }
   }
 

@@ -11,7 +11,21 @@ AI-generated images:
 | `plot_surface` | Rotatable 3D surfaces z = f(x, y) with contour projections | Plotly |
 | `grade_work` | Grades your attempt: score, step-by-step ✓/✗, hint, next practice problem. Math answers are **independently verified** by a math engine; orgo answers show your structure next to the correct one | math.js and SmilesDrawer |
 
+| `draw_mechanism` | Step-by-step orgo mechanisms with curved electron-pushing arrows (full and fishhook) | SmilesDrawer and custom SVG arrows |
+| `animate_concept` | Interactive animations with a slider and play button: Riemann sums, secant to tangent, limits | math.js and Plotly |
+| `show_progress` | Study dashboard: average score, streak, per-topic bars, weakest topics, recent attempts. Every `grade_work` call is logged automatically | Upstash Redis (optional) |
+
 See `examples/` for sample output.
+
+## Make progress history permanent (optional, free)
+
+Render's free tier wipes its disk on every restart, so without a database your progress
+resets whenever the server sleeps. To keep it:
+
+1. Create a free account at upstash.com, then create a **Redis** database.
+2. On the database page, copy the **REST URL** and **REST TOKEN**.
+3. In Render, open your service → **Environment** → add `UPSTASH_REDIS_REST_URL` and
+   `UPSTASH_REDIS_REST_TOKEN` with those values. Render restarts automatically.
 
 ## 1. Run the server
 
@@ -52,5 +66,6 @@ search their docs for "Apps SDK connect from ChatGPT".
 
 ## Files
 - `server.js`: the MCP server. Defines the tools and the descriptions ChatGPT reads to decide when to use them.
+- `store.js`: progress storage (Upstash Redis when configured, otherwise a local file).
 - `checker.js`: the math engine that verifies derivatives, antiderivatives and simplified answers.
 - `widget.html`: the UI rendered inline in the chat. Supports light and dark mode.
