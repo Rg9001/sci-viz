@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <div id="root">
   <div id="title"></div>
   <div id="stage"></div>
@@ -7,378 +8,270 @@
 </div>
 
 <style>
-  :root { --bg:#ffffff; --fg:#1d1d1f; --muted:#6e6e73; --card:#f6f7f9; --line:#e3e5e8; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#1e1e20; --fg:#f2f2f2; --muted:#a1a1a6; --card:#2a2a2d; --line:#3a3a3d; }
+  :root {
+    --bg:#ffffff; --fg:#16181d; --muted:#666b76; --card:#f7f8fa; --paper:#ffffff; --line:#e4e6eb; --accent:#2563eb;
+    --good:#15803d; --warn:#b45309; --bad:#be123c; --shadow:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  }
+  :root[data-theme="dark"] {
+    --bg:#1b1c1f; --fg:#eceef2; --muted:#a2a7b3; --card:#24262b; --paper:#202226; --line:#363941; --accent:#6ea0ff;
+    --good:#4ade80; --warn:#fbbf24; --bad:#fb7185; --shadow:none;
   }
   html, body { margin:0; background:var(--bg); color:var(--fg);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #root { padding:14px; }
-  #title { font-weight:600; font-size:15px; margin-bottom:8px; }
-  #caption { color:var(--muted); font-size:13px; margin-top:8px; line-height:1.4; }
-  #err { color:#d70015; font-size:13px; white-space:pre-wrap; }
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  #root { padding:16px; max-width:980px; }
+  #title { font-weight:650; font-size:16px; letter-spacing:-.01em; margin-bottom:12px; }
+  #title:empty { display:none; }
+  #caption { color:var(--muted); font-size:13px; margin-top:10px; line-height:1.5; }
+  #err { color:var(--bad); font-size:13px; white-space:pre-wrap; margin-top:8px; }
   #stage { display:flex; flex-wrap:wrap; gap:12px; }
-  .mol { background:var(--card); border:1px solid var(--line); border-radius:12px;
-    padding:10px; flex:1 1 240px; min-width:220px; text-align:center; }
-  .mol svg { width:100%; height:240px; }
-  .mol .name { font-size:13px; color:var(--muted); margin-top:4px; }
-  .rxn { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; }
-  .rxn svg { width:100%; height:260px; }
-  .plot { width:100%; height:420px; }
-  /* ---- Progress ---- */
-  .p-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:10px; }
-  @media (max-width:520px){ .p-tiles { grid-template-columns:repeat(2,1fr); } }
-  .p-tile { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
-  .p-tile .v { font-size:24px; font-weight:700; }
+  .full { width:100%; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; box-sizing:border-box; }
+  .label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; font-weight:600; }
+  .muted { color:var(--muted); }
+  .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:11.5px; font-weight:600; }
+  .b-good { background:color-mix(in srgb, var(--good) 14%, transparent); color:var(--good); }
+  .b-warn { background:color-mix(in srgb, var(--warn) 16%, transparent); color:var(--warn); }
+  .b-bad { background:color-mix(in srgb, var(--bad) 14%, transparent); color:var(--bad); }
+
+  /* molecules */
+  .mol { background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:10px 12px 12px; box-shadow:var(--shadow);
+    flex:1 1 220px; min-width:200px; display:flex; flex-direction:column; align-items:center; box-sizing:border-box; }
+  .mol .svg { width:100%; display:flex; justify-content:center; }
+  .mol svg { width:auto; max-width:100%; height:auto; }
+  .mol .name { font-weight:600; font-size:14px; margin-top:4px; text-align:center; }
+  .mol .meta { font-size:12.5px; color:var(--muted); margin-top:2px; text-align:center; }
+  .mol .chk { margin-top:6px; text-align:center; font-size:12px; }
+  .mol .detail { font-size:11.5px; color:var(--muted); margin-top:4px; text-align:center; max-width:320px; }
+
+  /* reactions */
+  .rxn { width:100%; background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:var(--shadow);
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:6px; box-sizing:border-box; }
+  .rxn { flex-wrap:nowrap; }
+  .rxn .mol { box-shadow:none; border:none; background:transparent; flex:0 1 auto; min-width:0; padding:4px; }
+  .rxn .mol svg { width:auto; max-width:100%; height:auto; }
+  .rxn .mol .name { font-size:13px; }
+  .rxn .notes { width:100%; text-align:center; font-size:12px; color:var(--muted); margin-top:4px; }
+  .rxn .plus { font-size:22px; color:var(--muted); padding:0 4px; }
+  .rxn .arrow { display:flex; flex-direction:column; align-items:center; min-width:110px; max-width:170px; padding:0 4px; flex:0 0 auto; }
+  .rxn .arrow .t { font-size:12.5px; text-align:center; max-width:200px; line-height:1.35; min-height:17px; }
+  .rxn .arrow svg { width:110px; height:22px; }
+  .rxn .plus { flex:none; }
+  @media (max-width:600px){ .rxn { flex-wrap:wrap; } }
+
+  /* mechanisms */
+  .step { width:100%; background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:12px 14px; box-shadow:var(--shadow); box-sizing:border-box; }
+  .step .head { display:flex; align-items:center; gap:8px; }
+  .step .num { background:var(--accent); color:#fff; border-radius:999px; font-size:11px; font-weight:700; width:20px; height:20px; display:inline-grid; place-items:center; flex:none; }
+  .step .lab { font-weight:600; font-size:14px; }
+  .step .svg { display:flex; justify-content:center; padding:6px 0; }
+  .step svg { width:auto; max-width:100%; height:auto; }
+  .step .note { font-size:13px; color:var(--muted); line-height:1.45; }
+  .down { width:100%; display:flex; justify-content:center; color:var(--muted); margin:-4px 0; }
+
+  /* plots */
+  .plot { width:100%; height:430px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:6px; font-size:14px; align-items:center; }
+  .legend .it { display:flex; align-items:center; gap:8px; }
+  .sw { width:22px; height:0; border-top:3px solid; border-radius:2px; flex:none; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; padding:4px 10px; border-radius:999px; background:var(--card); border:1px solid var(--line); }
+  .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .katex { font-size:1.05em; }
+
+  /* animations */
+  .a-ctrl { display:flex; align-items:center; gap:10px; margin-top:6px; flex-wrap:wrap; }
+  .a-ctrl button { background:var(--accent); color:#fff; border:none; border-radius:999px; padding:7px 16px; font-weight:600; cursor:pointer; font-size:13px; }
+  .a-ctrl input[type=range] { flex:1; min-width:140px; accent-color:var(--accent); }
+  .a-ctrl select { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:4px 6px; }
+  .a-read { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .a-read div { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px 10px; font-size:13px; }
+  .a-read b { font-family: ui-monospace, Menlo, monospace; }
+  .a-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; font-family: ui-monospace, Menlo, monospace; }
+  .a-table td, .a-table th { border-bottom:1px solid var(--line); padding:4px 6px; text-align:right; }
+
+  /* grade */
+  .g-head { display:flex; align-items:center; gap:14px; }
+  .g-ring { width:64px; height:64px; border-radius:50%; flex:none; display:grid; place-items:center; background:conic-gradient(var(--c) calc(var(--p)*1%), var(--line) 0); }
+  .g-ring span { width:50px; height:50px; border-radius:50%; background:var(--bg); display:grid; place-items:center; font-weight:700; font-size:17px; }
+  .g-ans { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:520px){ .g-ans { grid-template-columns:1fr; } }
+  .g-math { font-size:15px; overflow-x:auto; padding:2px 0; }
+  .g-check { font-size:13px; padding:9px 12px; border-radius:10px; margin-top:10px; line-height:1.45; }
+  .g-step { border-left:3px solid var(--c); padding:6px 10px; margin:8px 0; }
+  .g-step .w { font-size:13.5px; }
+  .g-step .f { font-size:13px; color:var(--muted); margin-top:3px; line-height:1.45; }
+  .stack { display:flex; flex-direction:column; gap:10px; width:100%; }
+
+  /* progress */
+  .p-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:560px){ .p-tiles { grid-template-columns:repeat(2,1fr); } }
+  .p-tile .v { font-size:26px; font-weight:700; letter-spacing:-.02em; }
   .p-tile .l { font-size:12px; color:var(--muted); }
-  .p-row { display:grid; grid-template-columns:minmax(90px,1.2fr) 3fr 44px; align-items:center; gap:10px; margin:7px 0; font-size:13px; }
-  .p-bar { height:10px; background:var(--line); border-radius:6px; overflow:hidden; }
+  .p-row { display:grid; grid-template-columns:minmax(100px,1.3fr) 3fr 40px; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+  .p-bar { height:9px; background:var(--line); border-radius:6px; overflow:hidden; }
   .p-bar > div { height:100%; border-radius:6px; }
   .p-act { display:grid; grid-template-columns:repeat(14,1fr); gap:4px; }
   .p-act div { aspect-ratio:1; border-radius:4px; }
-  .p-recent { font-size:13px; display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .p-recent { font-size:13px; display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); }
   .p-recent:last-child { border-bottom:none; }
-  /* ---- Mechanism ---- */
-  .m-step { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 14px; width:100%; box-sizing:border-box; }
-  .m-step svg { width:100%; height:230px; }
-  .m-label { font-weight:600; font-size:14px; }
-  .m-note { font-size:13px; color:var(--muted); margin-top:2px; }
-  .m-down { width:100%; text-align:center; font-size:22px; color:var(--muted); line-height:1; margin:-4px 0; }
-  /* ---- Animations ---- */
-  .a-ctrl { display:flex; align-items:center; gap:10px; margin-top:6px; flex-wrap:wrap; }
-  .a-ctrl button { background:#2563eb; color:#fff; border:none; border-radius:999px; padding:6px 14px; font-weight:600; cursor:pointer; }
-  .a-ctrl input[type=range] { flex:1; min-width:140px; accent-color:#2563eb; }
-  .a-ctrl select { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:4px 6px; }
-  .a-read { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
-  .a-read div { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px 10px; font-size:13px; }
-  .a-read b { font-family: ui-monospace, Menlo, monospace; }
-  .a-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; font-family: ui-monospace, Menlo, monospace; }
-  .a-table td, .a-table th { border-bottom:1px solid var(--line); padding:3px 6px; text-align:right; }
-  /* ---- Grade report ---- */
-  .g-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
-  .g-ring { --c:#16a34a; width:64px; height:64px; border-radius:50%; flex:none; display:grid; place-items:center;
-    background: conic-gradient(var(--c) calc(var(--p)*1%), var(--line) 0); }
-  .g-ring span { width:50px; height:50px; border-radius:50%; background:var(--bg); display:grid; place-items:center;
-    font-weight:700; font-size:16px; }
-  .g-badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; color:#fff; }
-  .g-sub { color:var(--muted); font-size:13px; margin-top:4px; }
-  .g-card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px; width:100%; box-sizing:border-box; }
-  .g-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
-  .g-ans { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .g-mono { font-family: ui-monospace, Menlo, monospace; font-size:14px; word-break:break-word; }
-  .g-check { font-size:13px; padding:8px 12px; border-radius:10px; margin-top:10px; }
-  .g-step { border-left:4px solid var(--c); padding:6px 10px; margin:8px 0; }
-  .g-step .w { font-family: ui-monospace, Menlo, monospace; font-size:13px; }
-  .g-step .f { font-size:13px; color:var(--muted); margin-top:3px; }
-  .g-structs { display:flex; gap:10px; flex-wrap:wrap; }
-  .g-structs .mol svg { height:200px; }
 </style>
 
-<script src="https://cdn.jsdelivr.net/npm/smiles-drawer@2.1.7/dist/smiles-drawer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mathjs@13.2.0/lib/browser/math.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const dark = () => (window.openai && window.openai.theme
-    ? window.openai.theme === "dark"
-    : window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const PALETTE = ["#2563eb", "#e11d48", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+  const isDark = () => (window.openai && window.openai.theme ? window.openai.theme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const tex = (t, display) => { try { return katex.renderToString(t, { throwOnError: false, displayMode: !!display }); } catch { return esc(t); } };
+  const showError = (m) => { $("err").textContent = m; };
+  const COLORS = ["#2563eb", "#e11d48", "#059669", "#d97706", "#7c3aed", "#0891b2"];
+  const FEATURE = { "root": "#0284c7", "local max": "#16a34a", "local min": "#dc2626", "inflection": "#7c3aed", "y-intercept": "#64748b", "tangent point": "#d97706" };
+  const niceTex = (s) => String(s).replace(/≈/g, "\\approx ").replace(/π/g, "\\pi ").replace(/√(\d+)/g, "\\sqrt{$1}");
 
-  function showError(msg) { $("err").textContent = msg; }
+  // Chemical formula → HTML with subscripts / superscript charge
+  const formulaHtml = (f) => esc(f).replace(/(\d+)(?=[A-Z]|$|[+−])/g, "<sub>$1</sub>").replace(/(\d*[+−])$/, "<sup>$1</sup>");
+  const svgFor = (o) => (isDark() ? o.dark : o.light) || "";
+
+  function checkBadge(c) {
+    if (!c) return "";
+    if (c.status === "verified") return `<span class="badge b-good" title="${esc(c.detail)}">✓ Verified · PubChem</span>`;
+    if (c.status === "corrected") return `<span class="badge b-warn" title="${esc(c.detail)}">⚠ Corrected from PubChem</span>`;
+    return "";
+  }
+  function molCard(m) {
+    const title = m.name || m.label || "";
+    return `<div class="mol"><div class="svg">${svgFor(m)}</div>` +
+      (title ? `<div class="name">${esc(title)}</div>` : "") +
+      (m.name && m.label ? `<div class="meta">${esc(m.label)}</div>` : "") +
+      `<div class="meta">${formulaHtml(m.formula)} · ${m.mw.toFixed(2)} g/mol</div>` +
+      (checkBadge(m.check) ? `<div class="chk">${checkBadge(m.check)}</div>` : "") +
+      (m.check && m.check.status === "corrected" ? `<div class="detail">${esc(m.check.detail)}</div>` : "") + `</div>`;
+  }
 
   // ---------- Chemistry ----------
-  function drawMolecules(data) {
-    const stage = $("stage");
-    const drawer = new SmilesDrawer.SmiDrawer({
-      compactDrawing: false,
-      explicitHydrogens: !!data.explicitHydrogens,
-      terminalCarbons: !!data.terminalCarbons,
-      bondThickness: 1.2,
-      fontSizeLarge: 11,
-      fontSizeSmall: 8,
-    });
-    const theme = dark() ? "dark" : "light";
+  function drawMolecules(d) { $("stage").innerHTML = d.items.map(molCard).join(""); }
 
-    (data.molecules || []).forEach((m, i) => {
-      const isRxn = m.smiles.includes(">");
-      const box = document.createElement("div");
-      box.className = isRxn ? "rxn" : "mol";
-      const svgId = "s" + i;
-      box.innerHTML = `<svg id="${svgId}" data-smiles=""></svg>` +
-        (m.name ? `<div class="name">${escapeHtml(m.name)}</div>` : "") +
-        (m.conditions ? `<div class="name">Conditions: ${escapeHtml(m.conditions)}</div>` : "");
-      stage.appendChild(box);
-      drawer.draw(m.smiles, "#" + svgId, theme, null,
-        (e) => showError(`Could not parse SMILES for ${m.name || m.smiles}: ${e}`));
-    });
+  function rxnCard(m) {
+    const title = m.name || m.label || "";
+    const tick = m.check && m.check.status === "verified" ? ` <span style="color:var(--good)" title="${esc(m.check.detail)}">✓</span>` : m.check && m.check.status === "corrected" ? ` <span style="color:var(--warn)" title="${esc(m.check.detail)}">⚠</span>` : "";
+    return `<div class="mol"><div class="svg">${svgFor(m)}</div>${title ? `<div class="name">${esc(title)}${tick}</div>` : ""}<div class="meta">${formulaHtml(m.formula)}</div></div>`;
+  }
+  function drawReaction(d) {
+    const side = (list) => list.map(rxnCard).join(`<div class="plus">+</div>`);
+    const col = css("--fg");
+    const arrow = d.arrow === "equilibrium"
+      ? `<svg viewBox="0 0 130 22"><path d="M4 7 H122 M114 2 L124 7" stroke="${col}" stroke-width="1.6" fill="none"/><path d="M126 15 H8 M16 20 L6 15" stroke="${col}" stroke-width="1.6" fill="none"/></svg>`
+      : `<svg viewBox="0 0 130 22"><path d="M4 11 H120" stroke="${col}" stroke-width="1.8"/><path d="M114 5 L126 11 L114 17 Z" fill="${col}"/></svg>`;
+    const corrected = [...d.reactants, ...d.products].filter((m) => m.check && m.check.status === "corrected");
+    const notes = corrected.length ? `<div class="notes">⚠ ${corrected.map((m) => esc(m.check.detail)).join("<br>")}</div>` : "";
+    setTimeout(() => { const n = document.querySelector(".rxn"); if (n && notes) n.insertAdjacentHTML("beforeend", notes); });
+    $("stage").innerHTML = `<div class="rxn">${side(d.reactants)}<div class="arrow"><div class="t">${esc(d.reagents || "")}</div>${arrow}<div class="t muted">${esc(d.conditions || "")}</div></div>${side(d.products)}</div>`;
   }
 
-  // ---------- Math ----------
-  function plot2D(data) {
-    const div = document.createElement("div");
-    div.className = "plot";
-    $("stage").appendChild(div);
-    const [x0, x1] = [data.xMin ?? -10, data.xMax ?? 10];
-    const N = 800, traces = [];
-
-    (data.functions || []).forEach((f, i) => {
-      const code = math.compile(f.expr);
-      const xs = [], ys = [];
-      for (let k = 0; k <= N; k++) {
-        const x = x0 + (x1 - x0) * k / N;
-        let y;
-        try { y = code.evaluate({ x }); } catch { y = NaN; }
-        if (typeof y !== "number" || !isFinite(y) || Math.abs(y) > 1e6) y = null; // break at asymptotes
-        xs.push(x); ys.push(y);
-      }
-      const color = PALETTE[i % PALETTE.length];
-      traces.push({ x: xs, y: ys, mode: "lines", name: f.label || `y = ${f.expr}`,
-        line: { color, width: 2.5, dash: f.dashed ? "dash" : "solid" } });
-
-      // optional shaded area (integral) for this function
-      if (f.shadeFrom != null && f.shadeTo != null) {
-        const sx = [], sy = [];
-        for (let k = 0; k <= 300; k++) {
-          const x = f.shadeFrom + (f.shadeTo - f.shadeFrom) * k / 300;
-          sx.push(x); sy.push(code.evaluate({ x }));
-        }
-        traces.push({ x: sx, y: sy, fill: "tozeroy", mode: "none", showlegend: false,
-          fillcolor: color + "33", hoverinfo: "skip" });
-      }
-    });
-
-    (data.points || []).forEach((p) => traces.push({
-      x: [p.x], y: [p.y], mode: "markers+text", text: [p.label || ""], textposition: "top right",
-      marker: { size: 9, color: dark() ? "#fff" : "#111" }, showlegend: false }));
-
-    Plotly.newPlot(div, traces, layout(data, {
-      xaxis: axis(data.xLabel || "x", [x0, x1]),
-      yaxis: axis(data.yLabel || "y", data.yMin != null && data.yMax != null ? [data.yMin, data.yMax] : undefined),
-    }), { responsive: true, displaylogo: false });
-  }
-
-  function plot3D(data) {
-    const div = document.createElement("div");
-    div.className = "plot";
-    div.style.height = "480px";
-    $("stage").appendChild(div);
-    const code = math.compile(data.expr);
-    const [x0, x1, y0, y1] = [data.xMin ?? -5, data.xMax ?? 5, data.yMin ?? -5, data.yMax ?? 5];
-    const n = 80, xs = [], ys = [], zs = [];
-    for (let i = 0; i <= n; i++) xs.push(x0 + (x1 - x0) * i / n);
-    for (let j = 0; j <= n; j++) ys.push(y0 + (y1 - y0) * j / n);
-    for (const y of ys) zs.push(xs.map((x) => {
-      try { const z = code.evaluate({ x, y }); return isFinite(z) ? z : null; } catch { return null; }
-    }));
-    Plotly.newPlot(div, [{ type: "surface", x: xs, y: ys, z: zs, colorscale: "Viridis",
-      contours: { z: { show: true, usecolormap: true, project: { z: true } } } }],
-      layout(data, { scene: { xaxis: { title: "x" }, yaxis: { title: "y" }, zaxis: { title: "z" } } }),
-      { responsive: true, displaylogo: false });
-  }
-
-
-  // ---------- Grading ----------
-  const STATUS = {
-    correct: { c: "#16a34a", icon: "✓", label: "Correct" },
-    partially_correct: { c: "#d97706", icon: "◐", label: "Partially correct" },
-    incorrect: { c: "#e11d48", icon: "✗", label: "Not quite" },
-    minor_error: { c: "#d97706", icon: "!", label: "Minor error" },
-  };
-  const CHECK = {
-    verified: { bg: "#16a34a22", fg: "#16a34a", t: "✓ Verified by math engine" },
-    mismatch: { bg: "#e11d4822", fg: "#e11d48", t: "✗ Math engine found a difference" },
-    inconclusive: { bg: "#d9770622", fg: "#d97706", t: "? Not auto-verifiable" },
-    error: { bg: "#d9770622", fg: "#d97706", t: "? Couldn't auto-verify" },
-  };
-
-  function drawGrade(d) {
-    const st = STATUS[d.verdict] || STATUS.incorrect, e = escapeHtml;
-    const ringColor = d.score >= 85 ? "#16a34a" : d.score >= 50 ? "#d97706" : "#e11d48";
-    let h = `<div style="width:100%">
-      <div class="g-head">
-        <div class="g-ring" style="--p:${Math.round(d.score)};--c:${ringColor}"><span>${Math.round(d.score)}</span></div>
-        <div><span class="g-badge" style="background:${st.c}">${st.icon} ${st.label}</span>
-          <div class="g-sub">${e(d.subject || "")}${d.keyConcept ? " · " + e(d.keyConcept) : ""}</div></div>
-      </div>
-      <div class="g-card"><div class="g-label">Problem</div><div>${e(d.problem)}</div></div>
-      <div class="g-card"><div class="g-ans">
-        <div><div class="g-label">Your answer</div><div class="g-mono" style="color:${st.c}">${e(d.studentAnswer)}</div></div>
-        <div><div class="g-label">Correct answer</div><div class="g-mono">${e(d.correctAnswer)}</div></div>
-      </div>`;
-    if (d.check) {
-      const c = CHECK[d.check.status] || CHECK.error;
-      h += `<div class="g-check" style="background:${c.bg};color:${c.fg}"><b>${c.t}</b><br><span style="color:var(--fg)">${e(d.check.detail)}</span></div>`;
-    }
-    h += `</div>`;
-    if (d.structures && (d.structures.studentSmiles || d.structures.correctSmiles)) {
-      h += `<div class="g-card"><div class="g-label">Structures</div><div class="g-structs">` +
-        (d.structures.studentSmiles ? `<div class="mol"><svg id="g-s"></svg><div class="name">Yours</div></div>` : "") +
-        (d.structures.correctSmiles ? `<div class="mol"><svg id="g-c"></svg><div class="name">Correct</div></div>` : "") +
-        `</div></div>`;
-    }
-    if (d.steps && d.steps.length) {
-      h += `<div class="g-card"><div class="g-label">Step by step</div>` + d.steps.map((s, i) => {
-        const ss = STATUS[s.status] || STATUS.incorrect;
-        return `<div class="g-step" style="--c:${ss.c}"><div class="w"><b style="color:${ss.c}">${ss.icon}</b> ${i + 1}. ${e(s.work)}</div><div class="f">${e(s.feedback)}</div></div>`;
-      }).join("") + `</div>`;
-    }
-    if (d.hint) h += `<div class="g-card"><div class="g-label">💡 Hint</div><div>${e(d.hint)}</div></div>`;
-    if (d.nextProblem) h += `<div class="g-card"><div class="g-label">🎯 Try this next</div><div>${e(d.nextProblem)}</div></div>`;
-    h += `</div>`;
-    $("stage").innerHTML = h;
-
-    if (d.structures) {
-      const drawer = new SmilesDrawer.SmiDrawer({ bondThickness: 1.2, fontSizeLarge: 11, fontSizeSmall: 8 });
-      const theme = dark() ? "dark" : "light";
-      if (d.structures.studentSmiles) drawer.draw(d.structures.studentSmiles, "#g-s", theme, null, (er) => showError("Your structure: " + er));
-      if (d.structures.correctSmiles) drawer.draw(d.structures.correctSmiles, "#g-c", theme, null, (er) => showError("Correct structure: " + er));
-    }
-  }
-
-
-  // ---------- Progress dashboard ----------
-  const scoreColor = (v) => v >= 85 ? "#16a34a" : v >= 65 ? "#d97706" : "#e11d48";
-  function drawProgress(d) {
-    const e = escapeHtml;
-    if (!d.total) {
-      $("stage").innerHTML = `<div class="g-card">No graded work yet. Send some practice problems to get graded, and your progress will show up here.</div>`;
-      return;
-    }
-    const tile = (v, l) => `<div class="p-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
-    let h = `<div style="width:100%"><div class="p-tiles">` +
-      tile(d.total, "Problems graded") + tile(`<span style="color:${scoreColor(d.avgScore)}">${d.avgScore}</span>`, "Average score") +
-      tile(d.accuracy + "%", "Fully correct") + tile((d.streak ? "🔥 " : "") + d.streak, "Day streak") + `</div>`;
-    if (d.weakTopics.length) {
-      h += `<div class="g-card" style="border-color:#e11d4855"><div class="g-label">🎯 Focus on these</div>` +
-        d.weakTopics.map((t) => `<div class="p-row"><div>${e(t.topic)}</div><div class="p-bar"><div style="width:${t.avg}%;background:${scoreColor(t.avg)}"></div></div><div style="text-align:right">${t.avg}</div></div>`).join("") + `</div>`;
-    }
-    h += `<div class="g-card"><div class="g-label">All topics</div>` + d.topics.map((t) => {
-      const tr = t.trend > 3 ? `<span style="color:#16a34a">▲</span>` : t.trend < -3 ? `<span style="color:#e11d48">▼</span>` : "";
-      return `<div class="p-row"><div>${e(t.topic)} <span style="color:var(--muted)">×${t.attempts}</span> ${tr}</div><div class="p-bar"><div style="width:${t.avg}%;background:${scoreColor(t.avg)}"></div></div><div style="text-align:right">${t.avg}</div></div>`;
-    }).join("") + `</div>`;
-    const maxC = Math.max(1, ...d.activity.map((a) => a.count));
-    h += `<div class="g-card"><div class="g-label">Last 14 days</div><div class="p-act">` +
-      d.activity.map((a) => `<div title="${a.day}: ${a.count}" style="background:${a.count ? `rgba(37,99,235,${0.25 + 0.75 * a.count / maxC})` : "var(--line)"}"></div>`).join("") + `</div></div>`;
-    h += `<div class="g-card"><div class="g-label">Recent</div>` + d.recent.map((r) =>
-      `<div class="p-recent"><div>${e(r.topic || r.subject)}<div style="color:var(--muted);font-size:12px">${e(r.problem)}</div></div><div style="color:${scoreColor(r.score)};font-weight:700">${r.score}</div></div>`).join("") + `</div>`;
-    if (!d.persistent) h += `<div class="g-sub">Note: history is stored temporarily and resets when the server restarts.</div>`;
-    $("stage").innerHTML = h + `</div>`;
-  }
-
-  // ---------- Mechanisms ----------
   function drawMechanism(d) {
-    const stage = $("stage"), theme = dark() ? "dark" : "light";
-    const arrowColor = dark() ? "#ff6b81" : "#e11d48";
-    d.steps.forEach((step, si) => {
-      if (si > 0) { const dn = document.createElement("div"); dn.className = "m-down"; dn.textContent = "↓"; stage.appendChild(dn); }
-      const box = document.createElement("div");
-      box.className = "m-step";
-      box.innerHTML = (step.label ? `<div class="m-label">${escapeHtml(step.label)}</div>` : "") +
-        `<svg id="m${si}"></svg>` + (step.note ? `<div class="m-note">${escapeHtml(step.note)}</div>` : "");
-      stage.appendChild(box);
-      const svg = box.querySelector("svg");
-      const drawer = new SmilesDrawer.SvgDrawer({ bondThickness: 1.2, fontSizeLarge: 11, fontSizeSmall: 8 });
-      SmilesDrawer.parse(step.smiles, (tree) => {
-        try {
-          drawer.draw(tree, svg, theme, null);
-          overlayArrows(svg, drawer.preprocessor.graph.vertices, step.arrows || [], arrowColor, d.showAtomNumbers, si);
-        } catch (er) { showError(`Step ${si + 1}: ${er.message || er}`); }
-      }, (er) => showError(`Step ${si + 1}: couldn't parse SMILES "${step.smiles}": ${er}`));
-    });
+    const downArrow = `<svg width="16" height="22" viewBox="0 0 16 22"><path d="M8 1 V18 M3 13 L8 20 L13 13" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>`;
+    $("stage").innerHTML = d.steps.map((s, i) => (i ? `<div class="down">${downArrow}</div>` : "") +
+      `<div class="step"><div class="head"><span class="num">${i + 1}</span><span class="lab">${esc(s.label || (i === d.steps.length - 1 ? "Product" : `Step ${i + 1}`))}</span></div>` +
+      `<div class="svg">${svgFor(s)}</div>${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}</div>`).join("");
   }
 
-  function overlayArrows(svg, verts, arrows, color, numbers, si) {
-    const NS = "http://www.w3.org/2000/svg";
-    const P = (i) => { const v = verts[i]; if (!v) throw new Error(`atom index ${i} doesn't exist (only ${verts.length} atoms)`); return { x: v.position.x, y: v.position.y }; };
-    const cx = verts.reduce((s, v) => s + v.position.x, 0) / verts.length;
-    const cy = verts.reduce((s, v) => s + v.position.y, 0) / verts.length;
-    const pt = (ref) => Array.isArray(ref) ? (([a, b]) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }))([P(ref[0]), P(ref[1])]) : P(ref);
+  // ---------- Plot helpers ----------
+  function axis(title, range) {
+    return { title: { text: title || "", font: { size: 13 } }, range, gridcolor: css("--line"), zerolinecolor: isDark() ? "#8a8f99" : "#9aa1ad",
+      zerolinewidth: 1.4, linecolor: css("--line"), ticks: "outside", tickcolor: css("--line"), automargin: true };
+  }
+  const baseLayout = (extra) => Object.assign({
+    margin: { l: 48, r: 16, t: 8, b: 40 }, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif", color: css("--fg"), size: 12 },
+    showlegend: false, hovermode: "closest", hoverlabel: { font: { size: 12 } },
+  }, extra);
+  const plotConfig = { responsive: true, displaylogo: false, displayModeBar: false };
 
-    const defs = document.createElementNS(NS, "defs");
-    defs.innerHTML = `<marker id="ah${si}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${color}"/></marker>
-      <marker id="fh${si}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse"><path d="M0,5 L10,5 L0,0 z" fill="${color}"/></marker>`;
-    svg.appendChild(defs);
-
-    let [minX, minY, w, h] = svg.getAttribute("viewBox").split(" ").map(Number);
-    let maxX = minX + w, maxY = minY + h;
-    const grow = (p) => { minX = Math.min(minX, p.x - 8); maxX = Math.max(maxX, p.x + 8); minY = Math.min(minY, p.y - 8); maxY = Math.max(maxY, p.y + 8); };
-
-    const unit = (x, y) => { const L = Math.hypot(x, y) || 1; return { x: x / L, y: y / L }; };
-    const away = (p, n) => ((p.x + n.x - cx) ** 2 + (p.y + n.y - cy) ** 2 >= (p.x - n.x - cx) ** 2 + (p.y - n.y - cy) ** 2) ? n : { x: -n.x, y: -n.y };
-    arrows.forEach((ar) => {
-      let a, b;
-      const bondFrom = Array.isArray(ar.from), bondTo = Array.isArray(ar.to);
-      if (bondFrom && !bondTo && ar.from.includes(ar.to)) {
-        // Bond breaking toward one of its own atoms: arc from the bond's side to the far side of that atom.
-        const p = P(ar.from[0]), q = P(ar.from[1]), t = P(ar.to), other = ar.from[0] === ar.to ? q : p;
-        const n = away({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }, unit(-(q.y - p.y), q.x - p.x));
-        const along = unit(t.x - other.x, t.y - other.y);
-        a = { x: (p.x + q.x) / 2 + 4 * n.x, y: (p.y + q.y) / 2 + 4 * n.y };
-        b = { x: t.x + 9 * n.x + 6 * along.x, y: t.y + 9 * n.y + 6 * along.y };
-      } else {
-        a = pt(ar.from); b = pt(ar.to);
-        if (!bondFrom) { const u = away(a, unit(a.x - cx, a.y - cy)); a = { x: a.x + 8 * u.x, y: a.y + 8 * u.y }; }
-        if (bondFrom) { const p = P(ar.from[0]), q = P(ar.from[1]); const n = away(a, unit(-(q.y - p.y), q.x - p.x)); a = { x: a.x + 4 * n.x, y: a.y + 4 * n.y }; }
-        const u = unit(b.x - a.x, b.y - a.y);
-        if (!bondTo) b = { x: b.x - 9 * u.x, y: b.y - 9 * u.y };
+  // ---------- 2D plots ----------
+  function plot2D(d) {
+    const wrap = document.createElement("div"); wrap.className = "full";
+    wrap.innerHTML = `<div class="plot"></div><div class="legend"></div><div class="chips"></div>`;
+    $("stage").appendChild(wrap);
+    const traces = [], shapes = [], legend = [], chips = [];
+    let [ylo, yhi] = d.yRange;
+    const allPts = [];
+    d.functions.forEach((f, i) => {
+      const color = COLORS[i % COLORS.length];
+      if (f.shade) traces.push({ x: f.shade.x, y: f.shade.y, fill: "tozeroy", mode: "none", fillcolor: color + "2e", hoverinfo: "skip" });
+      traces.push({ x: f.x, y: f.y, mode: "lines", line: { color, width: 2.6, dash: f.dashed ? "dash" : "solid" }, connectgaps: false,
+        hovertemplate: `(%{x:.4g}, %{y:.4g})<extra></extra>` });
+      legend.push(`<span class="it"><span class="sw" style="border-color:${color};${f.dashed ? "border-top-style:dashed" : ""}"></span>${f.label ? esc(f.label) + ":&nbsp;" : ""}${tex((d.functions.length > 1 ? `f_{${i + 1}}(x)=` : "f(x)=") + f.tex)}</span>`);
+      if (f.tangent) {
+        traces.push({ x: f.tangent.x, y: f.tangent.y, mode: "lines", line: { color: FEATURE["tangent point"], width: 2, dash: "dash" }, hoverinfo: "skip" });
+        legend.push(`<span class="it"><span class="sw" style="border-color:${FEATURE["tangent point"]};border-top-style:dashed"></span>tangent:&nbsp;${tex(f.tangent.tex)}</span>`);
+        allPts.push(f.tangent.point);
       }
-      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
-      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const n = away(mid, { x: -dy / L, y: dx / L });
-      const bend = Math.max(10, 0.4 * L);
-      const c = { x: mid.x + n.x * bend, y: mid.y + n.y * bend };
-      const path = document.createElementNS(NS, "path");
-      path.setAttribute("d", `M${a.x},${a.y} Q${c.x},${c.y} ${b.x},${b.y}`);
-      path.setAttribute("fill", "none"); path.setAttribute("stroke", color); path.setAttribute("stroke-width", "1.6");
-      path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("marker-end", `url(#${ar.type === "fishhook" ? "fh" : "ah"}${si})`);
-      svg.appendChild(path);
-      grow(a); grow(b); grow({ x: (a.x + 2 * c.x + b.x) / 4, y: (a.y + 2 * c.y + b.y) / 4 });
+      if (f.shade) legend.push(`<span class="it"><span class="sw" style="border-top-width:10px;border-color:${color}55"></span>${tex(f.shade.tex)}</span>`);
+      f.lines.forEach((l) => {
+        shapes.push(l.x != null
+          ? { type: "line", xref: "x", yref: "paper", x0: l.x, x1: l.x, y0: 0, y1: 1, line: { color: css("--muted"), width: 1.4, dash: "dot" } }
+          : { type: "line", xref: "paper", yref: "y", x0: 0, x1: 1, y0: l.y, y1: l.y, line: { color: css("--muted"), width: 1.4, dash: "dot" } });
+        chips.push(`<span class="chip"><span class="dot" style="background:${css("--muted")}"></span>${esc(l.kind)} ${tex(l.tex)}</span>`);
+      });
+      f.features.forEach((p) => allPts.push(p));
     });
+    const labelled = new Set();
+    const showText = allPts.length <= 10;
+    const byKind = {};
+    allPts.forEach((p) => {
+      const key = p.x.toFixed(9) + "," + p.y.toFixed(9);
+      p.label = labelled.has(key) ? "" : p.text; labelled.add(key);
+      (byKind[p.kind] = byKind[p.kind] || []).push(p);
+    });
+    Object.entries(byKind).forEach(([kind, pts]) => {
+      traces.push({ x: pts.map((p) => p.x), y: pts.map((p) => p.y), mode: showText ? "markers+text" : "markers",
+        text: pts.map((p) => p.label), customdata: pts.map((p) => p.text), textposition: "top right", textfont: { size: 11, color: css("--fg") },
+        marker: { size: 9, color: FEATURE[kind] || "#334155", line: { color: css("--bg"), width: 1.5 } },
+        hovertemplate: `${kind} %{customdata}<extra></extra>` });
+      if (kind !== "tangent point") pts.forEach((p) => chips.push(`<span class="chip"><span class="dot" style="background:${FEATURE[kind]}"></span>${esc(kind)} ${tex(niceTex(p.text))}</span>`));
+      pts.forEach((p) => { ylo = Math.min(ylo, p.y); yhi = Math.max(yhi, p.y); });
+    });
+    (d.points || []).forEach((p) => {
+      traces.push({ x: [p.x], y: [p.y], mode: "markers+text", text: [(p.ok ? "" : "⚠ ") + (p.label || "")], textposition: "top left",
+        marker: { size: 9, color: p.ok ? css("--fg") : "#f59e0b", symbol: p.ok ? "circle" : "x" }, hovertemplate: `(%{x}, %{y})<extra></extra>` });
+      ylo = Math.min(ylo, p.y); yhi = Math.max(yhi, p.y);
+    });
+    const pad = (yhi - ylo) * 0.04;
+    Plotly.newPlot(wrap.querySelector(".plot"), traces, baseLayout({ shapes, xaxis: axis(d.xLabel || "x", d.xRange), yaxis: axis(d.yLabel || "y", [ylo - pad, yhi + pad]) }), plotConfig);
+    wrap.querySelector(".legend").innerHTML = legend.join("");
+    wrap.querySelector(".chips").innerHTML = chips.join("");
+  }
 
-    // SmilesDrawer hides charges on unlabeled carbons; draw them (e.g. carbocations, carbanions).
-    verts.forEach((v) => {
-      const ch = v.value.bracket && v.value.bracket.charge;
-      if (v.value.element !== "C" || !ch) return;
-      const u = away(v.position, unit(v.position.x - cx || 0.3, v.position.y - cy || -1));
-      const t = document.createElementNS(NS, "text");
-      t.setAttribute("x", v.position.x + 8 * u.x); t.setAttribute("y", v.position.y + 8 * u.y + 3);
-      t.setAttribute("font-size", "10"); t.setAttribute("text-anchor", "middle"); t.setAttribute("font-weight", "700");
-      t.setAttribute("fill", dark() ? "#f2f2f2" : "#1d1d1f");
-      t.textContent = ch > 0 ? (ch > 1 ? ch + "+" : "+") : (ch < -1 ? -ch + "−" : "−");
-      svg.appendChild(t);
-    });
-
-    if (numbers) verts.forEach((v, i) => {
-      const t = document.createElementNS(NS, "text");
-      t.setAttribute("x", v.position.x + 5); t.setAttribute("y", v.position.y - 5);
-      t.setAttribute("font-size", "7"); t.setAttribute("fill", "#2563eb"); t.textContent = i;
-      svg.appendChild(t);
-    });
-    svg.setAttribute("viewBox", `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
+  function plot3D(d) {
+    const lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = tex("z = " + d.tex); $("stage").appendChild(lg);
+    const div = document.createElement("div"); div.className = "plot"; div.style.height = "480px";
+    $("stage").appendChild(div);
+    Plotly.newPlot(div, [{ type: "surface", x: d.x, y: d.y, z: d.z, colorscale: "Viridis", showscale: true, colorbar: { thickness: 12, len: 0.7 },
+      contours: { z: { show: true, usecolormap: true, project: { z: true }, width: 2 } }, lighting: { ambient: 0.7, diffuse: 0.6, specular: 0.15 } }],
+      baseLayout({ margin: { l: 0, r: 0, t: 0, b: 0 }, scene: { xaxis: { title: "x", gridcolor: css("--line") }, yaxis: { title: "y", gridcolor: css("--line") }, zaxis: { title: "z", gridcolor: css("--line") }, camera: { eye: { x: 1.6, y: 1.5, z: 0.9 } } } }), plotConfig);
   }
 
   // ---------- Animations ----------
   function drawAnimation(d) {
     const f = math.compile(d.expr);
     const F = (x) => { try { const y = f.evaluate({ x }); return typeof y === "number" && isFinite(y) ? y : NaN; } catch { return NaN; } };
-    const wrap = document.createElement("div"); wrap.style.width = "100%";
-    wrap.innerHTML = `<div class="plot" style="height:380px"></div><div class="a-ctrl"><button>▶ Play</button><input type="range"><span class="a-lab" style="font-size:13px;min-width:90px"></span></div><div class="a-read"></div><div class="a-extra"></div>`;
+    const wrap = document.createElement("div"); wrap.className = "full";
+    wrap.innerHTML = `<div class="legend">${tex("f(x) = " + d.tex)}</div><div class="plot" style="height:380px"></div><div class="a-ctrl"><button>▶ Play</button><input type="range"><span class="a-lab" style="font-size:13px;min-width:110px"></span></div><div class="a-read"></div><div class="a-extra"></div>`;
     $("stage").appendChild(wrap);
     const plot = wrap.querySelector(".plot"), btn = wrap.querySelector("button"), slider = wrap.querySelector("input"),
       lab = wrap.querySelector(".a-lab"), read = wrap.querySelector(".a-read"), extra = wrap.querySelector(".a-extra");
-    const curve = (x0, x1) => { const xs = [], ys = []; for (let k = 0; k <= 600; k++) { const x = x0 + (x1 - x0) * k / 600; xs.push(x); const y = F(x); ys.push(isNaN(y) || Math.abs(y) > 1e6 ? null : y); } return { x: xs, y: ys }; };
+    const curve = (x0, x1) => { const xs = [], ys = []; for (let k = 0; k <= 800; k++) { const x = x0 + (x1 - x0) * k / 800; xs.push(x); const y = F(x); ys.push(isNaN(y) || Math.abs(y) > 1e6 ? null : y); } return { x: xs, y: ys }; };
     const fmt = (v) => (isFinite(v) ? (+v.toPrecision(7)).toString() : "undefined");
-    const base = { mode: "lines", line: { color: "#2563eb", width: 2.5 }, name: `f(x) = ${d.expr}` };
-    const lay = (extraL) => layout(d, Object.assign({ showlegend: false, xaxis: axis("x"), yaxis: axis("y") }, extraL));
+    const base = { mode: "lines", line: { color: COLORS[0], width: 2.6 }, hoverinfo: "skip" };
+    const lay = (x) => baseLayout(Object.assign({ xaxis: axis("x"), yaxis: axis("y") }, x));
     let setStep;
-
     if (d.type === "riemann") {
-      const a = d.a ?? 0, b = d.b ?? 1, pad = (b - a) * 0.15;
-      const x0 = d.xMin ?? a - pad, x1 = d.xMax ?? b + pad;
-      // exact via Simpson
+      const a = d.a, b = d.b, pad = (b - a) * 0.15, x0 = d.xMin ?? a - pad, x1 = d.xMax ?? b + pad;
       let exact = 0; const N = 2000, hh = (b - a) / N;
       for (let i = 0; i <= N; i++) exact += F(a + i * hh) * (i === 0 || i === N ? 1 : i % 2 ? 4 : 2);
       exact *= hh / 3;
@@ -387,112 +280,136 @@
       slider.min = 1; slider.max = 60; slider.value = 4;
       const c = curve(x0, x1);
       setStep = () => {
-        const n = +slider.value, m = sel.value, dx = (b - a) / n;
-        const px = [], py = [], nx = [], ny = []; let sum = 0;
+        const n = +slider.value, m = sel.value, dx = (b - a) / n, px = [], py = [], nx = [], ny = []; let sum = 0;
         for (let i = 0; i < n; i++) {
-          const l = a + i * dx, r = l + dx;
-          let poly;
+          const l = a + i * dx, r = l + dx; let poly;
           if (m === "trapezoid") { const yl = F(l), yr = F(r); sum += (yl + yr) / 2 * dx; poly = [[l, 0], [l, yl], [r, yr], [r, 0], [l, 0]]; }
           else { const xs = m === "left" ? l : m === "right" ? r : (l + r) / 2, y = F(xs); sum += y * dx; poly = [[l, 0], [l, y], [r, y], [r, 0], [l, 0]]; }
           const pos = poly[1][1] + poly[2][1] >= 0, X = pos ? px : nx, Y = pos ? py : ny;
           poly.forEach(([x, y]) => { X.push(x); Y.push(y); }); X.push(null); Y.push(null);
         }
         Plotly.react(plot, [
-          { x: px, y: py, fill: "toself", mode: "lines", line: { color: "#16a34a", width: 1 }, fillcolor: "#16a34a44", hoverinfo: "skip" },
-          { x: nx, y: ny, fill: "toself", mode: "lines", line: { color: "#e11d48", width: 1 }, fillcolor: "#e11d4844", hoverinfo: "skip" },
-          Object.assign({}, base, c)], lay({ xaxis: axis("x", [x0, x1]) }), { displaylogo: false, responsive: true });
-        lab.textContent = `n = ${n}`;
+          { x: px, y: py, fill: "toself", mode: "lines", line: { color: "#059669", width: 1 }, fillcolor: "#05966938", hoverinfo: "skip" },
+          { x: nx, y: ny, fill: "toself", mode: "lines", line: { color: "#e11d48", width: 1 }, fillcolor: "#e11d4838", hoverinfo: "skip" },
+          Object.assign({}, base, c)], lay({ xaxis: axis("x", [x0, x1]) }), plotConfig);
+        lab.textContent = `n = ${n} rectangles`;
         read.innerHTML = `<div>${m} sum: <b>${fmt(sum)}</b></div><div>exact ∫: <b>${fmt(exact)}</b></div><div>error: <b>${fmt(Math.abs(sum - exact))}</b></div>`;
       };
       sel.onchange = setStep;
     } else if (d.type === "secant_tangent") {
-      const x0p = d.x0 ?? 1, x0 = d.xMin ?? x0p - 4, x1 = d.xMax ?? x0p + 4, y0 = F(x0p);
+      const x0p = d.x0, x0 = d.xMin ?? x0p - 4, x1 = d.xMax ?? x0p + 4, y0 = F(x0p);
       let slopeT; try { slopeT = math.derivative(d.expr, "x").evaluate({ x: x0p }); } catch { slopeT = (F(x0p + 1e-6) - F(x0p - 1e-6)) / 2e-6; }
       const c = curve(x0, x1), ys = c.y.filter((v) => v != null), yr = [Math.min(...ys), Math.max(...ys)], ypad = (yr[1] - yr[0]) * 0.1 || 1;
       slider.min = 0; slider.max = 100; slider.value = 0;
       setStep = () => {
         const h = 3 * Math.pow(10, -3.5 * slider.value / 100), x1q = x0p + h, y1 = F(x1q), m = (y1 - y0) / h;
         const L = (m_, col, dash) => ({ x: [x0, x1], y: [y0 + m_ * (x0 - x0p), y0 + m_ * (x1 - x0p)], mode: "lines", line: { color: col, width: 2, dash }, hoverinfo: "skip" });
-        Plotly.react(plot, [Object.assign({}, base, c), L(slopeT, "#16a34a", "dash"), L(m, "#e11d48", "solid"),
-          { x: [x0p, x1q], y: [y0, y1], mode: "markers+text", text: ["P", "Q"], textposition: "top left", marker: { size: 10, color: ["#111", "#e11d48"] } }],
-          lay({ xaxis: axis("x", [x0, x1]), yaxis: axis("y", [yr[0] - ypad, yr[1] + ypad]) }), { displaylogo: false, responsive: true });
+        Plotly.react(plot, [Object.assign({}, base, c), L(slopeT, "#059669", "dash"), L(m, "#e11d48", "solid"),
+          { x: [x0p, x1q], y: [y0, y1], mode: "markers+text", text: ["P", "Q"], textposition: ["bottom right", "top left"], marker: { size: 10, color: [css("--fg"), "#e11d48"] } }],
+          lay({ xaxis: axis("x", [x0, x1]), yaxis: axis("y", [yr[0] - ypad, yr[1] + ypad]) }), plotConfig);
         lab.textContent = `h = ${fmt(h)}`;
-        read.innerHTML = `<div style="color:#e11d48">secant slope: <b>${fmt(m)}</b></div><div style="color:#16a34a">tangent slope f′(${x0p}): <b>${fmt(slopeT)}</b></div><div>difference: <b>${fmt(Math.abs(m - slopeT))}</b></div>`;
+        read.innerHTML = `<div style="color:#e11d48">secant slope: <b>${fmt(m)}</b></div><div style="color:#059669">f′(${x0p}) = <b>${fmt(slopeT)}</b></div><div>difference: <b>${fmt(Math.abs(m - slopeT))}</b></div>`;
       };
     } else {
-      const x0p = d.x0 ?? 0, x0 = d.xMin ?? x0p - 3, x1 = d.xMax ?? x0p + 3, fx0 = F(x0p);
-      const c = curve(x0, x1);
+      const x0p = d.x0, x0 = d.xMin ?? x0p - 3, x1 = d.xMax ?? x0p + 3, fx0 = F(x0p), c = curve(x0, x1);
       slider.min = 0; slider.max = 100; slider.value = 0;
-      const rows = [1, 0.1, 0.01, 0.001, 0.0001];
       setStep = () => {
-        const dd = 2 * Math.pow(10, -4 * slider.value / 100), xl = x0p - dd, xr = x0p + dd, yl = F(xl), yr = F(xr);
-        const est = (yl + yr) / 2;
+        const dd = 2 * Math.pow(10, -4 * slider.value / 100), xl = x0p - dd, xr = x0p + dd, yl = F(xl), yr = F(xr), est = (yl + yr) / 2;
         const traces = [Object.assign({}, base, c),
-          { x: [xl, xr], y: [yl, yr], mode: "markers", marker: { size: 11, color: ["#7c3aed", "#d97706"] }, hoverinfo: "x+y" },
-          { x: [xl, xl, null, xr, xr], y: [0, yl, null, 0, yr], mode: "lines", line: { color: "#999", dash: "dot", width: 1 }, hoverinfo: "skip" }];
-        if (isNaN(fx0) && isFinite(est)) traces.push({ x: [x0p], y: [est], mode: "markers", marker: { size: 11, color: "rgba(0,0,0,0)", line: { color: "#2563eb", width: 2 } }, hoverinfo: "skip" });
-        else if (isFinite(fx0) && Math.abs(fx0 - est) > 1e-3 * Math.max(1, Math.abs(est))) traces.push({ x: [x0p], y: [fx0], mode: "markers", marker: { size: 9, color: "#2563eb" } });
-        Plotly.react(plot, traces, lay({ xaxis: axis("x", [x0, x1]) }), { displaylogo: false, responsive: true });
+          { x: [xl, xr], y: [yl, yr], mode: "markers", marker: { size: 11, color: ["#7c3aed", "#d97706"] }, hovertemplate: "(%{x:.6g}, %{y:.6g})<extra></extra>" },
+          { x: [xl, xl, null, xr, xr], y: [0, yl, null, 0, yr], mode: "lines", line: { color: css("--muted"), dash: "dot", width: 1 }, hoverinfo: "skip" }];
+        if (isNaN(fx0) && isFinite(est)) traces.push({ x: [x0p], y: [est], mode: "markers", marker: { size: 12, color: "rgba(0,0,0,0)", line: { color: COLORS[0], width: 2 } }, hoverinfo: "skip" });
+        else if (isFinite(fx0) && Math.abs(fx0 - est) > 1e-3 * Math.max(1, Math.abs(est))) traces.push({ x: [x0p], y: [fx0], mode: "markers", marker: { size: 9, color: COLORS[0] } });
+        Plotly.react(plot, traces, lay({ xaxis: axis("x", [x0, x1]) }), plotConfig);
         lab.textContent = `distance = ${fmt(dd)}`;
         read.innerHTML = `<div style="color:#7c3aed">f(${fmt(xl)}) = <b>${fmt(yl)}</b></div><div style="color:#d97706">f(${fmt(xr)}) = <b>${fmt(yr)}</b></div><div>f(${x0p}) = <b>${fmt(fx0)}</b></div>`;
       };
+      const rows = [1, 0.1, 0.01, 0.001, 0.0001];
       extra.innerHTML = `<table class="a-table"><tr><th>x → ${x0p}⁻</th><th>f(x)</th><th>x → ${x0p}⁺</th><th>f(x)</th></tr>` +
         rows.map((r) => `<tr><td>${fmt(x0p - r)}</td><td>${fmt(F(x0p - r))}</td><td>${fmt(x0p + r)}</td><td>${fmt(F(x0p + r))}</td></tr>`).join("") + `</table>`;
     }
-
     slider.oninput = setStep;
     let timer = null;
     btn.onclick = () => {
       if (timer) { clearInterval(timer); timer = null; btn.textContent = "▶ Play"; return; }
       if (+slider.value >= +slider.max) slider.value = slider.min;
       btn.textContent = "❚❚ Pause";
-      timer = setInterval(() => {
-        slider.value = +slider.value + 1; setStep();
-        if (+slider.value >= +slider.max) { clearInterval(timer); timer = null; btn.textContent = "▶ Replay"; }
-      }, d.type === "riemann" ? 220 : 60);
+      timer = setInterval(() => { slider.value = +slider.value + 1; setStep(); if (+slider.value >= +slider.max) { clearInterval(timer); timer = null; btn.textContent = "▶ Replay"; } }, d.type === "riemann" ? 220 : 60);
     };
     setStep();
   }
 
-  function axis(title, range) {
-    const c = dark() ? "#3a3a3d" : "#e3e5e8";
-    return { title, range, gridcolor: c, zerolinecolor: dark() ? "#888" : "#999", zerolinewidth: 1.5 };
-  }
-  function layout(data, extra) {
-    return Object.assign({
-      margin: { l: 50, r: 20, t: 10, b: 45 },
-      paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-      font: { color: dark() ? "#f2f2f2" : "#1d1d1f" },
-      legend: { orientation: "h", y: -0.18 },
-    }, extra);
+  // ---------- Grading ----------
+  const STATUS = {
+    correct: { c: "var(--good)", icon: "✓", label: "Correct" }, partially_correct: { c: "var(--warn)", icon: "◐", label: "Partially correct" },
+    incorrect: { c: "var(--bad)", icon: "✗", label: "Not quite" }, minor_error: { c: "var(--warn)", icon: "!", label: "Minor error" },
+  };
+  const CHECK = { verified: ["b-good", "✓ Verified by math engine"], mismatch: ["b-bad", "✗ Math engine found a difference"], inconclusive: ["b-warn", "? Not auto-verifiable"], error: ["b-warn", "? Couldn't auto-verify"] };
+  const scoreColor = (v) => (v >= 85 ? "var(--good)" : v >= 60 ? "var(--warn)" : "var(--bad)");
+
+  function drawGrade(d) {
+    const st = STATUS[d.verdict] || STATUS.incorrect;
+    const ans = (t, raw) => (t ? `<div class="g-math">${tex(t)}</div>` : `<div class="g-math">${esc(raw)}</div>`);
+    let h = `<div class="stack"><div class="g-head"><div class="g-ring" style="--p:${Math.round(d.score)};--c:${scoreColor(d.score)}"><span>${Math.round(d.score)}</span></div>
+      <div><span class="badge" style="background:color-mix(in srgb, ${st.c} 15%, transparent);color:${st.c}">${st.icon} ${st.label}</span>
+      <div class="muted" style="font-size:13px;margin-top:5px">${esc(d.subject)}${d.keyConcept ? " · " + esc(d.keyConcept) : ""}</div></div></div>
+      <div class="card"><div class="label">Problem</div><div style="line-height:1.5">${esc(d.problem)}</div></div>
+      <div class="card"><div class="g-ans"><div><div class="label">Your answer</div><div style="color:${st.c}">${ans(d.studentTex, d.studentAnswer)}</div></div>
+      <div><div class="label">Correct answer</div>${ans(d.correctTex, d.correctAnswer)}</div></div>`;
+    if (d.check) {
+      const c = CHECK[d.check.status] || CHECK.error;
+      const what = d.check.mode === "derivative" && d.check.expectedTex ? `<div style="margin-top:4px">${tex("\\frac{d}{dx}\\left[\\text{original}\\right] = " + d.check.expectedTex)}</div>`
+        : d.check.mode === "antiderivative" && d.check.yoursTex ? `<div style="margin-top:4px">${tex("\\frac{d}{dx}\\left[\\text{your answer}\\right] = " + d.check.yoursTex)}</div>` : "";
+      const detail = d.check.status === "mismatch" ? (d.check.detail.match(/At .*$/) || [d.check.detail])[0] : d.check.status === "verified" ? "Your answer matches at every tested point." : d.check.detail;
+      h += `<div class="g-check ${c[0]}"><b>${c[1]}</b>${what}<div style="color:var(--fg);margin-top:3px">${esc(detail)}</div></div>`;
+    }
+    h += `</div>`;
+    if (d.structures && (d.structures.student || d.structures.correct)) {
+      const s = d.structures;
+      const card = (o, t, ok) => o ? `<div class="mol"><div class="svg">${svgFor(o)}</div><div class="name" style="color:${ok}">${t}</div><div class="meta">${formulaHtml(o.formula)}</div></div>` : "";
+      h += `<div class="card"><div class="label">Structures ${s.same != null ? (s.same ? `<span class="badge b-good">✓ identical (RDKit)</span>` : `<span class="badge b-bad">✗ different (RDKit)</span>`) : ""}</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">${card(s.student, "Yours", s.same === false ? "var(--bad)" : "var(--fg)")}${card(s.correct, "Correct", "var(--fg)")}</div></div>`;
+    }
+    if (d.steps && d.steps.length) h += `<div class="card"><div class="label">Step by step</div>` + d.steps.map((s, i) => {
+      const ss = STATUS[s.status] || STATUS.incorrect;
+      return `<div class="g-step" style="--c:${ss.c}"><div class="w"><b style="color:${ss.c}">${ss.icon}</b> ${i + 1}. ${esc(s.work)}</div><div class="f">${esc(s.feedback)}</div></div>`;
+    }).join("") + `</div>`;
+    if (d.hint) h += `<div class="card"><div class="label">💡 Hint</div><div style="line-height:1.5">${esc(d.hint)}</div></div>`;
+    if (d.nextProblem) h += `<div class="card"><div class="label">🎯 Try this next</div><div style="line-height:1.5">${esc(d.nextProblem)}</div></div>`;
+    $("stage").innerHTML = h + `</div>`;
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // ---------- Progress ----------
+  function drawProgress(d) {
+    if (!d.total) { $("stage").innerHTML = `<div class="card full">No graded work yet. Send a math, physics or chemistry problem to be graded and your progress will appear here.</div>`; return; }
+    const tile = (v, l) => `<div class="card p-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+    const row = (t) => `<div class="p-row"><div>${esc(t.topic)} <span class="muted">×${t.attempts}</span> ${t.trend > 3 ? `<span style="color:var(--good)">▲</span>` : t.trend < -3 ? `<span style="color:var(--bad)">▼</span>` : ""}</div><div class="p-bar"><div style="width:${t.avg}%;background:${scoreColor(t.avg)}"></div></div><div style="text-align:right;font-weight:600">${t.avg}</div></div>`;
+    const maxC = Math.max(1, ...d.activity.map((a) => a.count));
+    let h = `<div class="stack"><div class="p-tiles">${tile(d.total, "Problems graded")}${tile(`<span style="color:${scoreColor(d.avgScore)}">${d.avgScore}</span>`, "Average score")}${tile(d.accuracy + "%", "Fully correct")}${tile((d.streak ? "🔥 " : "") + d.streak, "Day streak")}</div>`;
+    if (d.weakTopics.length) h += `<div class="card" style="border-color:color-mix(in srgb, var(--bad) 40%, var(--line))"><div class="label">🎯 Focus on these</div>${d.weakTopics.map(row).join("")}</div>`;
+    h += `<div class="card"><div class="label">All topics</div>${d.topics.map(row).join("")}</div>`;
+    h += `<div class="card"><div class="label">Last 14 days</div><div class="p-act">${d.activity.map((a) => `<div title="${a.day}: ${a.count}" style="background:${a.count ? `color-mix(in srgb, var(--accent) ${25 + 75 * a.count / maxC}%, transparent)` : "var(--line)"}"></div>`).join("")}</div></div>`;
+    h += `<div class="card"><div class="label">Recent</div>${d.recent.map((r) => `<div class="p-recent"><div>${esc(r.topic || r.subject)}<div class="muted" style="font-size:12px">${esc(r.problem)}</div></div><div style="color:${scoreColor(r.score)};font-weight:700">${r.score}</div></div>`).join("")}</div>`;
+    if (!d.persistent) h += `<div class="muted" style="font-size:12px">History is stored temporarily and resets when the server restarts (add Upstash to keep it).</div>`;
+    $("stage").innerHTML = h + `</div>`;
   }
 
   // ---------- Entry ----------
   let lastKey = null;
   function render() {
     const data = window.openai && window.openai.toolOutput;
+    document.documentElement.setAttribute("data-theme", isDark() ? "dark" : "light");
     if (!data) return;
-    const key = JSON.stringify(data);
+    const key = JSON.stringify(data) + isDark();
     if (key === lastKey) return;
     lastKey = key;
     $("stage").innerHTML = ""; $("err").textContent = "";
     $("title").textContent = data.title || "";
     $("caption").textContent = data.caption || "";
-    try {
-      if (data.kind === "molecules") drawMolecules(data);
-      else if (data.kind === "plot2d") plot2D(data);
-      else if (data.kind === "plot3d") plot3D(data);
-      else if (data.kind === "grade") drawGrade(data);
-      else if (data.kind === "progress") drawProgress(data);
-      else if (data.kind === "mechanism") drawMechanism(data);
-      else if (data.kind === "animate") drawAnimation(data);
-    } catch (e) { showError(String(e && e.message || e)); }
+    const fn = { molecules: drawMolecules, reaction: drawReaction, mechanism: drawMechanism, plot2d: plot2D, plot3d: plot3D,
+      animate: drawAnimation, grade: drawGrade, progress: drawProgress }[data.kind];
+    try { fn ? fn(data) : showError("Unknown result type."); } catch (e) { showError(String((e && e.message) || e)); }
   }
-
   render();
   window.addEventListener("openai:set_globals", render);
 })();

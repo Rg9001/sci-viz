@@ -1,5 +1,6 @@
-// SciViz: a ChatGPT app (Apps SDK / MCP server) that draws clean skeletal
-// structures, reactions and math plots instead of relying on image generation.
+// SciViz: a ChatGPT app (Apps SDK / MCP server) for math, physics and chemistry.
+// Every figure is computed or verified on the server: RDKit + PubChem for chemistry,
+// math.js for graphs, so the pictures don't depend on numbers the model made up.
 import express from "express";
 import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -7,295 +8,365 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { checkMath } from "./checker.js";
 import { addAttempt, getAttempts, summarize, persistent } from "./store.js";
+import * as chem from "./chem.js";
+import * as mv from "./mathviz.js";
 
-const WIDGET_URI = "ui://widget/sciviz-v1.html";
+const WIDGET_URI = "ui://widget/sciviz-v2.html";
 const widgetHtml = readFileSync(new URL("./widget.html", import.meta.url), "utf8");
 
-const widgetMeta = {
+// Every tool carries this so ChatGPT only uses the app for these subjects.
+const SCOPE =
+  " SCOPE — use this tool ONLY for mathematics (arithmetic, algebra, geometry, trigonometry, " +
+  "precalculus, calculus, multivariable calculus, linear algebra, differential equations, statistics), " +
+  "physics, and chemistry (general, organic, physical, analytical). NEVER use it for biology, " +
+  "microbiology, anatomy, physiology, biochemistry, psychology, neuroscience, economics, history, " +
+  "English, or any other subject — not even when the user is practicing, submitting work, or asks " +
+  "to be graded in those subjects. For those, just answer normally without this app.";
+
+const widgetMeta = (invoking, invoked) => ({
   "openai/outputTemplate": WIDGET_URI,
   "openai/widgetAccessible": false,
   "openai/resultCanProduceWidget": true,
+  "openai/toolInvocation/invoking": invoking,
+  "openai/toolInvocation/invoked": invoked,
+});
+
+const SUBJECTS = ["Arithmetic", "Algebra", "Geometry", "Trigonometry", "Precalculus", "Calculus",
+  "Multivariable Calculus", "Linear Algebra", "Differential Equations", "Statistics", "Physics",
+  "General Chemistry", "Organic Chemistry", "Physical Chemistry", "Analytical Chemistry"];
+
+const fail = (message) => ({ isError: true, content: [{ type: "text", text: `${message} Fix the input and call the tool again.` }] });
+const guarded = (fn) => async (args) => {
+  try { return await fn(args); } catch (e) {
+    if (e instanceof chem.ChemError || e instanceof mv.MathError) return fail(e.message);
+    console.error(e);
+    return fail(`Internal error: ${e.message}.`);
+  }
 };
 
-function createServer() {
-  const server = new McpServer({ name: "sciviz", version: "1.0.0" });
+const compoundRef = z.object({
+  name: z.string().optional().describe("The compound's real chemical name (e.g. 'caffeine', 'L-alanine', '2-bromopropane'). It is checked against PubChem and the structure is corrected if it doesn't match. Leave empty for unnamed intermediates."),
+  smiles: z.string().optional().describe("SMILES. Optional when `name` is a real compound name: the exact structure is then taken from PubChem."),
+  label: z.string().optional().describe("Free caption that is NOT checked, e.g. 'Product A', 'Intermediate', 'Major product'."),
+});
 
-  // The HTML component ChatGPT renders inline.
+async function resolveCompound(c) {
+  if (!c.name && !c.smiles) throw new chem.ChemError("Each compound needs a `name` or a `smiles`.");
+  if (c.smiles && c.smiles.includes(">")) throw new chem.ChemError(`"${c.smiles}" is a reaction SMILES; use draw_reaction for reactions.`);
+  const check = c.name ? await chem.verifyNamed(c.name, c.smiles) : { status: "unchecked", smiles: c.smiles };
+  if (!check.smiles) throw new chem.ChemError(`No structure for "${c.name}": PubChem has no compound by that name, so give a SMILES.`);
+  const d = await chem.depict(check.smiles);
+  return { name: c.name, label: c.label, light: d.light, dark: d.dark, formula: d.formula, mw: d.mw, smiles: d.canonical,
+    counts: chem.elementCounts(d.graph), check: { status: check.status, detail: check.detail, cid: check.cid } };
+}
+
+const checkNote = (items) => items.filter((m) => m.check.status === "corrected")
+  .map((m) => `CORRECTION: ${m.check.detail} Tell the user the structure was corrected.`).join(" ");
+
+function createServer() {
+  const server = new McpServer({ name: "sciviz", version: "2.0.0" });
+
   server.registerResource("sciviz-widget", WIDGET_URI, {}, async () => ({
     contents: [{
       uri: WIDGET_URI,
       mimeType: "text/html+skybridge",
       text: widgetHtml,
       _meta: {
-        "openai/widgetDescription": "Renders skeletal formulas, reactions and math plots.",
+        "openai/widgetDescription": "Renders verified chemical structures, mechanisms, computed math graphs and grading report cards.",
         "openai/widgetPrefersBorder": true,
-        "openai/widgetCSP": {
-          connect_domains: [],
-          resource_domains: ["https://cdn.jsdelivr.net"],
-        },
+        "openai/widgetCSP": { connect_domains: [], resource_domains: ["https://cdn.jsdelivr.net"] },
       },
     }],
   }));
 
-  // ---- Chemistry: skeletal structures and reactions ----
+  // ---------- Molecules ----------
   server.registerTool("draw_molecules", {
-    title: "Draw skeletal structures",
+    title: "Draw chemical structures",
     description:
-      "Draw publication-quality 2D skeletal (line-angle) structures from SMILES. Use this " +
-      "WHENEVER the user is studying organic chemistry and a structure, mechanism step, " +
-      "product, or reaction would help, instead of generating an image. Each entry may be a " +
-      "single molecule SMILES or a reaction SMILES 'reactants>reagents>products'. Include " +
-      "stereochemistry (@, @@, /, \\) when relevant. Double-check SMILES validity. Only put " +
-      "valid SMILES between the '>' signs; put text like 'H2SO4, heat' in 'conditions'.",
+      "Draw publication-quality skeletal structures (RDKit), with formula and molar mass. Use instead of " +
+      "generating images whenever a chemistry structure helps. For known compounds pass `name` (PubChem " +
+      "supplies or verifies the exact structure, including stereochemistry). For unnamed species pass " +
+      "`smiles` and a `label`. Invalid SMILES are rejected with an explanation." + SCOPE,
     inputSchema: {
-      title: z.string().optional().describe("Heading, e.g. 'SN2: bromoethane + hydroxide'"),
-      molecules: z.array(z.object({
-        smiles: z.string().describe("SMILES or reaction SMILES"),
-        name: z.string().optional().describe("Label under the drawing"),
-        conditions: z.string().optional()
-          .describe("Plain-text reagents/conditions for a reaction, e.g. 'H2SO4, heat'"),
-      })).min(1).max(8),
-      caption: z.string().optional().describe("One-line explanation under the drawings"),
-      explicitHydrogens: z.boolean().optional(),
-      terminalCarbons: z.boolean().optional().describe("Label CH3 ends explicitly"),
+      title: z.string().optional(),
+      molecules: z.array(compoundRef).min(1).max(8),
+      caption: z.string().optional(),
     },
-    _meta: {
-      ...widgetMeta,
-      "openai/toolInvocation/invoking": "Drawing structures…",
-      "openai/toolInvocation/invoked": "Structures drawn",
-    },
+    _meta: widgetMeta("Drawing structures…", "Structures drawn"),
     annotations: { readOnlyHint: true },
-  }, async (args) => ({
-    content: [{ type: "text", text: `Drew ${args.molecules.length} structure(s): ` +
-      args.molecules.map((m) => m.name || m.smiles).join(", ") }],
-    structuredContent: { kind: "molecules", ...args },
+  }, guarded(async (args) => {
+    const items = await Promise.all(args.molecules.map(resolveCompound));
+    return {
+      content: [{ type: "text", text: "Drew: " + items.map((m) => `${m.name || m.label || m.smiles} (${m.formula}, ${m.mw} g/mol, ${m.check.status})`).join("; ") + ". " + checkNote(items) }],
+      structuredContent: { kind: "molecules", title: args.title, caption: args.caption, items: items.map(({ counts, ...m }) => m) },
+    };
   }));
 
-  // ---- Calculus: 2D function plots ----
+  // ---------- Reactions ----------
+  server.registerTool("draw_reaction", {
+    title: "Draw a reaction",
+    description:
+      "Draw a reaction scheme: reactants → products with reagents above the arrow and conditions below. " +
+      "Structures are verified like draw_molecules, and the server reports whether atoms and charge are " +
+      "balanced. Put reagents as text (e.g. '1. BH3·THF  2. H2O2, NaOH'), not as structures." + SCOPE,
+    inputSchema: {
+      title: z.string().optional(),
+      reactants: z.array(compoundRef).min(1).max(4),
+      products: z.array(compoundRef).min(1).max(4),
+      reagents: z.string().optional().describe("Text above the arrow"),
+      conditions: z.string().optional().describe("Text below the arrow, e.g. 'heat', '0 °C', 'hv'"),
+      arrow: z.enum(["forward", "equilibrium"]).optional(),
+      caption: z.string().optional(),
+    },
+    _meta: widgetMeta("Drawing reaction…", "Reaction drawn"),
+    annotations: { readOnlyHint: true },
+  }, guarded(async (args) => {
+    const reactants = await Promise.all(args.reactants.map(resolveCompound));
+    const products = await Promise.all(args.products.map(resolveCompound));
+    const bal = chem.balance(reactants.map((m) => m.counts), products.map((m) => m.counts));
+    const balText = bal.balanced ? "Atoms and charge are balanced." :
+      `Not balanced as drawn (product side minus reactant side: ${Object.entries(bal.diff).map(([k, v]) => `${v > 0 ? "+" : ""}${v} ${k}`).join(", ") || "atoms OK"}${bal.chargeDiff ? `, charge ${bal.chargeDiff > 0 ? "+" : ""}${bal.chargeDiff}` : ""}). Fine if only the major organic product is shown; otherwise fix the equation.`;
+    const strip = ({ counts, ...m }) => m;
+    return {
+      content: [{ type: "text", text: `Drew reaction. ${balText} ` + checkNote([...reactants, ...products]) }],
+      structuredContent: { kind: "reaction", title: args.title, caption: args.caption, reagents: args.reagents, conditions: args.conditions,
+        arrow: args.arrow || "forward", reactants: reactants.map(strip), products: products.map(strip), balanced: bal.balanced },
+    };
+  }));
+
+  // ---------- Mechanisms ----------
+  const atomRef = z.union([z.number().int().min(0), z.array(z.number().int().min(0)).length(2)]);
+  server.registerTool("draw_mechanism", {
+    title: "Draw reaction mechanism",
+    description:
+      "Draw an organic mechanism step by step with curved electron-pushing arrows. Each step = the species " +
+      "present (SMILES, species separated by '.') + the arrows for what happens next. ATOM INDICES: atoms " +
+      "are numbered 0,1,2… in the order they appear in that step's SMILES, counting every atom written " +
+      "(bracket atoms like [H], [OH-], [H+] count; implicit hydrogens do not; '.' does not reset). Write any " +
+      "hydrogen that moves explicitly as [H]. Arrow endpoints: an atom index (a lone pair, or the atom " +
+      "attacked) or [i, j] for the bond between atoms i and j. Arrows must start at a lone pair or a bond — " +
+      "the server checks this and rejects bad indices, so recount if it errors. type 'fishhook' = one-electron " +
+      "arrow. Write water as [OH2]. The last step normally shows products without arrows." + SCOPE,
+    inputSchema: {
+      title: z.string().optional(),
+      steps: z.array(z.object({
+        smiles: z.string(),
+        arrows: z.array(z.object({ from: atomRef, to: atomRef, type: z.enum(["full", "fishhook"]).optional() })).max(6).optional(),
+        label: z.string().optional().describe("e.g. 'Step 1: Protonation of the carbonyl'"),
+        note: z.string().optional().describe("One-sentence explanation"),
+      })).min(1).max(8),
+      caption: z.string().optional(),
+      showAtomNumbers: z.boolean().optional(),
+    },
+    _meta: widgetMeta("Drawing mechanism…", "Mechanism drawn"),
+    annotations: { readOnlyHint: true },
+  }, guarded(async (args) => {
+    const steps = [];
+    for (let i = 0; i < args.steps.length; i++) {
+      const st = args.steps[i];
+      const d = await chem.mechanismStep(st.smiles, st.arrows || [], i + 1, !!args.showAtomNumbers);
+      steps.push({ label: st.label, note: st.note, light: d.light, dark: d.dark, formula: d.formula, counts: chem.elementCounts(d.graph) });
+    }
+    const notes = [];
+    for (let i = 1; i < steps.length; i++) {
+      const b = chem.balance([steps[i - 1].counts], [steps[i].counts]);
+      if (!b.balanced) notes.push(`Between step ${i} and ${i + 1} the atoms/charge change (${Object.entries(b.diff).map(([k, v]) => `${v > 0 ? "+" : ""}${v} ${k}`).join(", ")}${b.chargeDiff ? `, charge ${b.chargeDiff > 0 ? "+" : ""}${b.chargeDiff}` : ""}) — make sure a species added/lost (e.g. H+, H2O) is mentioned in the note.`);
+    }
+    return {
+      content: [{ type: "text", text: `Drew a ${steps.length}-step mechanism; all arrows start at real lone pairs or bonds. ${notes.join(" ")}` }],
+      structuredContent: { kind: "mechanism", title: args.title, caption: args.caption, steps: steps.map(({ counts, ...s }) => s) },
+    };
+  }));
+
+  // ---------- 2D plots ----------
   server.registerTool("plot_functions", {
     title: "Plot functions",
     description:
-      "Plot one or more y = f(x) curves as an interactive graph. Use for calculus and " +
-      "algebra: functions, derivatives, tangent lines, limits, asymptotes, and areas under " +
-      "curves (set shadeFrom/shadeTo). Expressions use math.js syntax in the variable x, " +
-      "e.g. 'sin(x)/x', 'x^3 - 3x', 'e^(-x^2)', 'log(x)' (natural log), 'sqrt(x)'.",
+      "Plot y = f(x) curves. The server COMPUTES everything: discontinuities, and on request roots, " +
+      "local extrema, inflection points, asymptotes and the y-intercept (`features`), exact tangent lines " +
+      "(`tangentAt`) and shaded definite integrals with their value (`shadeFrom`/`shadeTo`). Always prefer " +
+      "these over hand-computed points or tangent equations. Values are shown in exact form (π/2, √3, 2/3) " +
+      "when exact. math.js syntax in x: 'x^3 - 3x', 'sin(x)/x', 'e^(-x^2)', 'log(x)' (natural log)." + SCOPE,
     inputSchema: {
       title: z.string().optional(),
       functions: z.array(z.object({
-        expr: z.string().describe("math.js expression in x"),
+        expr: z.string(),
         label: z.string().optional(),
-        dashed: z.boolean().optional().describe("Dashed line, e.g. for tangent lines"),
-        shadeFrom: z.number().optional().describe("Shade area under curve from this x"),
-        shadeTo: z.number().optional(),
+        features: z.array(z.enum(["roots", "extrema", "inflection", "asymptotes", "y_intercept"])).optional(),
+        tangentAt: z.number().optional(),
+        shadeFrom: z.number().optional(), shadeTo: z.number().optional(),
+        dashed: z.boolean().optional(),
       })).min(1).max(6),
-      points: z.array(z.object({ x: z.number(), y: z.number(), label: z.string().optional() }))
-        .optional().describe("Highlighted points, e.g. critical points"),
+      points: z.array(z.object({ x: z.number(), y: z.number(), label: z.string().optional(),
+        onCurve: z.boolean().optional().describe("Default true: the point is checked to lie on a curve") })).optional(),
       xMin: z.number().optional(), xMax: z.number().optional(),
       yMin: z.number().optional(), yMax: z.number().optional(),
       xLabel: z.string().optional(), yLabel: z.string().optional(),
       caption: z.string().optional(),
     },
-    _meta: {
-      ...widgetMeta,
-      "openai/toolInvocation/invoking": "Plotting…",
-      "openai/toolInvocation/invoked": "Plotted",
-    },
+    _meta: widgetMeta("Plotting…", "Plotted"),
     annotations: { readOnlyHint: true },
-  }, async (args) => ({
-    content: [{ type: "text", text: "Plotted: " + args.functions.map((f) => f.expr).join("; ") }],
-    structuredContent: { kind: "plot2d", ...args },
+  }, guarded(async (args) => {
+    const x0 = args.xMin ?? -10, x1 = args.xMax ?? 10;
+    if (!(x1 > x0)) throw new mv.MathError("xMax must be greater than xMin.");
+    const fns = args.functions.map((f) => ({ ...mv.analyzeFunction(f, x0, x1), label: f.label, dashed: f.dashed }));
+    const points = mv.checkPoints(args.points || [], args.functions.map((f) => mv.makeFn(mv.parseExpr(f.expr))));
+    const bad = points.filter((p) => !p.ok);
+    const lo = Math.min(...fns.map((f) => f.range[0])), hi = Math.max(...fns.map((f) => f.range[1]));
+    const feat = fns.flatMap((f, i) => f.features.map((p) => `${p.kind} ${p.text}` + (fns.length > 1 ? ` on f${i + 1}` : "")));
+    const text = [
+      `Plotted ${fns.map((f) => f.expr).join("; ")}.`,
+      feat.length ? `Computed features: ${feat.join("; ")}.` : "",
+      ...fns.flatMap((f) => f.lines.map((l) => `${l.kind}: ${l.text}.`)),
+      ...fns.filter((f) => f.tangent).map((f) => `Tangent at x=${f.tangent.x0}: slope ${mv.nice(f.tangent.slope).text}, ${f.tangent.tex}.`),
+      ...fns.filter((f) => f.shade).map((f) => `Integral from ${f.shade.from} to ${f.shade.to} = ${Number.isFinite(f.shade.value) ? mv.nice(f.shade.value).text : "undefined"}.`),
+      ...fns.flatMap((f) => f.warnings),
+      ...bad.map((p) => `WARNING: point (${p.x}, ${p.y}) "${p.label || ""}" is NOT on the curve${p.actual != null ? ` (f(${p.x}) = ${mv.nice(p.actual).text})` : ""}; correct what you tell the user.`),
+    ].filter(Boolean).join(" ");
+    return {
+      content: [{ type: "text", text }],
+      structuredContent: { kind: "plot2d", title: args.title, caption: args.caption, xLabel: args.xLabel, yLabel: args.yLabel,
+        xRange: [x0, x1], yRange: args.yMin != null && args.yMax != null ? [args.yMin, args.yMax] : [lo, hi],
+        functions: fns.map(({ range, warnings, ...f }) => f), points },
+    };
   }));
 
-  // ---- Multivariable calc: 3D surfaces ----
+  // ---------- 3D surfaces ----------
   server.registerTool("plot_surface", {
     title: "Plot 3D surface",
-    description:
-      "Plot an interactive, rotatable 3D surface z = f(x, y) with contour projection. Use " +
-      "for multivariable calculus (partial derivatives, saddle points, extrema). math.js syntax.",
+    description: "Interactive rotatable 3D surface z = f(x, y) with contours, for multivariable calculus. math.js syntax in x and y." + SCOPE,
     inputSchema: {
-      title: z.string().optional(),
-      expr: z.string().describe("math.js expression in x and y, e.g. 'x^2 - y^2'"),
-      xMin: z.number().optional(), xMax: z.number().optional(),
-      yMin: z.number().optional(), yMax: z.number().optional(),
+      title: z.string().optional(), expr: z.string(),
+      xMin: z.number().optional(), xMax: z.number().optional(), yMin: z.number().optional(), yMax: z.number().optional(),
       caption: z.string().optional(),
     },
-    _meta: {
-      ...widgetMeta,
-      "openai/toolInvocation/invoking": "Building surface…",
-      "openai/toolInvocation/invoked": "Surface ready",
-    },
+    _meta: widgetMeta("Building surface…", "Surface ready"),
     annotations: { readOnlyHint: true },
-  }, async (args) => ({
-    content: [{ type: "text", text: `Plotted surface z = ${args.expr}` }],
-    structuredContent: { kind: "plot3d", ...args },
+  }, guarded(async (a) => {
+    const s = mv.sampleSurface(a.expr, a.xMin ?? -5, a.xMax ?? 5, a.yMin ?? -5, a.yMax ?? 5);
+    return { content: [{ type: "text", text: `Plotted surface z = ${a.expr}.` }],
+      structuredContent: { kind: "plot3d", title: a.title, caption: a.caption, ...s } };
   }));
 
-  // ---- Smart grading ----
+  // ---------- Animations ----------
+  server.registerTool("animate_concept", {
+    title: "Animate a calculus concept",
+    description:
+      "Interactive animation with slider and play button: 'riemann' (Riemann sums → definite integral; " +
+      "needs a, b; method left/right/midpoint/trapezoid), 'secant_tangent' (secant lines → tangent at x0), " +
+      "'limit' (x → x0 from both sides with a value table). math.js syntax in x." + SCOPE,
+    inputSchema: {
+      type: z.enum(["riemann", "secant_tangent", "limit"]), expr: z.string(),
+      a: z.number().optional(), b: z.number().optional(),
+      method: z.enum(["left", "right", "midpoint", "trapezoid"]).optional(),
+      x0: z.number().optional(), xMin: z.number().optional(), xMax: z.number().optional(),
+      title: z.string().optional(), caption: z.string().optional(),
+    },
+    _meta: widgetMeta("Building animation…", "Animation ready"),
+    annotations: { readOnlyHint: true },
+  }, guarded(async (args) => {
+    const node = mv.parseExpr(args.expr);
+    if (args.type === "riemann" && (args.a == null || args.b == null || !(args.b > args.a))) throw new mv.MathError("Riemann sums need a < b.");
+    if (args.type !== "riemann" && args.x0 == null) throw new mv.MathError(`${args.type} needs x0.`);
+    let extra = "";
+    if (args.type === "riemann") {
+      const v = mv.integrate(mv.makeFn(node), args.a, args.b);
+      extra = ` Exact integral ${Number.isFinite(v) ? mv.nice(v).text : "undefined (improper)"}.`;
+    }
+    return { content: [{ type: "text", text: `Showing an interactive ${args.type} animation for ${args.expr}.${extra}` }],
+      structuredContent: { kind: "animate", ...args, expr: mv.prep(args.expr), tex: mv.toTex(node) } };
+  }));
+
+  // ---------- Grading ----------
   server.registerTool("grade_work", {
     title: "Grade my work",
     description:
-      "Grade the student's own attempt at a math or science problem and show a report card. " +
-      "Call this EVERY TIME the user submits their work or an answer (typed or a photo of " +
-      "handwritten work) and wants to know if it is right, for calculus, algebra, physics, " +
-      "general or organic chemistry. First solve the problem yourself carefully, then grade " +
-      "each of the student's steps. Be encouraging but honest; never mark something correct " +
-      "unless it is. Whenever the final answer is an expression (derivative, antiderivative, " +
-      "simplified expression, numeric value) ALWAYS fill mathCheck so a math engine verifies " +
-      "it independently. For orgo, fill structures with the student's and the correct product " +
-      "as SMILES. If the tool reports a math-engine mismatch with your verdict, re-examine and " +
-      "tell the student the corrected result.",
+      "Grade the student's own attempt at a MATH, PHYSICS or CHEMISTRY problem and show a report card. Use " +
+      "when the user submits work or an answer (typed or a photo) in one of those subjects and wants to know " +
+      "if it's right. First solve the problem yourself carefully, then grade each step. Be encouraging but " +
+      "honest. Whenever the final answer is an expression or number ALWAYS fill mathCheck so a math engine " +
+      "verifies it. For organic chemistry fill structures (student's and correct product) so RDKit can compare " +
+      "them. If the tool reports a disagreement, re-examine and tell the student the corrected result." + SCOPE,
     inputSchema: {
-      subject: z.string().describe("e.g. 'Calculus I', 'Organic Chemistry'"),
-      problem: z.string().describe("The problem statement"),
+      subject: z.enum(SUBJECTS).describe("Must be one of these; other subjects are out of scope"),
+      problem: z.string(),
       verdict: z.enum(["correct", "partially_correct", "incorrect"]),
-      score: z.number().min(0).max(100).describe("0-100"),
-      studentAnswer: z.string().describe("The student's final answer, as written"),
-      correctAnswer: z.string().describe("The correct final answer"),
+      score: z.number().min(0).max(100),
+      studentAnswer: z.string(),
+      correctAnswer: z.string(),
       steps: z.array(z.object({
-        work: z.string().describe("What the student wrote for this step"),
-        status: z.enum(["correct", "minor_error", "incorrect"]),
-        feedback: z.string().describe("Short explanation; for errors, what went wrong and the fix"),
+        work: z.string(), status: z.enum(["correct", "minor_error", "incorrect"]), feedback: z.string(),
       })).max(15).optional(),
       mathCheck: z.object({
         mode: z.enum(["equivalent", "derivative", "antiderivative"])
-          .describe("equivalent: student == reference. derivative: student == d/dx(reference = original function). antiderivative: d/dx(student) == reference (= integrand)"),
-        studentExpr: z.string().describe("Student's final expression in math.js syntax, e.g. '3x^2 - 3', 'ln(x) + C'"),
-        referenceExpr: z.string().describe("Reference expression per mode, math.js syntax"),
-        variable: z.string().optional().describe("Default 'x'"),
+          .describe("equivalent: student == reference. derivative: student == d/dx(reference). antiderivative: d/dx(student) == reference"),
+        studentExpr: z.string(), referenceExpr: z.string(), variable: z.string().optional(),
       }).optional(),
-      structures: z.object({
-        studentSmiles: z.string().optional(),
-        correctSmiles: z.string().optional(),
-      }).optional().describe("Orgo: draw the student's structure next to the correct one"),
-      keyConcept: z.string().optional().describe("The main idea the problem tests"),
-      topic: z.string().describe("Short, consistent topic name for the progress tracker, e.g. 'Chain rule', 'Integration by parts', 'SN2', 'Markovnikov addition'. Reuse the same name for the same topic."),
-      hint: z.string().optional().describe("If wrong: a nudge toward the fix without just restating the answer"),
-      nextProblem: z.string().optional().describe("A similar practice problem to try next"),
+      structures: z.object({ studentSmiles: z.string().optional(), correctSmiles: z.string().optional() }).optional(),
+      keyConcept: z.string().optional(),
+      topic: z.string().describe("Short consistent topic name for the progress tracker, e.g. 'Chain rule', 'SN2'"),
+      hint: z.string().optional(),
+      nextProblem: z.string().optional(),
     },
-    _meta: {
-      ...widgetMeta,
-      "openai/toolInvocation/invoking": "Grading your work…",
-      "openai/toolInvocation/invoked": "Graded",
-    },
-    annotations: { readOnlyHint: true },
-  }, async (args) => {
+    _meta: widgetMeta("Grading your work…", "Graded"),
+    annotations: { readOnlyHint: false },
+  }, guarded(async (args) => {
+    const notes = [], blockers = [];
     const check = args.mathCheck ? checkMath(args.mathCheck) : null;
-    let note = "";
-    if (check?.status === "mismatch" && args.verdict === "correct") {
-      note = " WARNING: the math engine disagrees with the 'correct' verdict. Re-check the work and tell the student the corrected result.";
-    } else if (check?.status === "verified" && args.verdict === "incorrect") {
-      note = " NOTE: the math engine found the student's final answer mathematically equivalent to the reference. If you marked it wrong only for form, say so; otherwise re-check.";
+    if (check?.status === "mismatch" && args.verdict === "correct") blockers.push(`The math engine proves the student's final answer is NOT equal to the correct one (${check.detail}), so the verdict cannot be 'correct'.`);
+    if (check?.status === "verified" && args.verdict === "incorrect") notes.push("NOTE: the math engine says the student's answer IS equivalent to the reference. If it was marked wrong only for form, say so; otherwise re-check.");
+
+    let structures = null;
+    if (args.structures?.studentSmiles || args.structures?.correctSmiles) {
+      structures = {};
+      for (const k of ["studentSmiles", "correctSmiles"]) if (args.structures[k]) {
+        const d = await chem.depict(args.structures[k]);
+        structures[k === "studentSmiles" ? "student" : "correct"] = { light: d.light, dark: d.dark, formula: d.formula, smiles: d.canonical };
+      }
+      if (structures.student && structures.correct) {
+        const same = structures.student.smiles === structures.correct.smiles;
+        structures.same = same;
+        if (same && args.verdict === "incorrect") blockers.push("RDKit shows the student's structure is IDENTICAL to the correct one, so the verdict cannot be 'incorrect'.");
+        if (!same && args.verdict === "correct") blockers.push(`RDKit shows the student's structure (${structures.student.smiles}) DIFFERS from the correct one (${structures.correct.smiles}), so the verdict cannot be 'correct'.`);
+      }
     }
+    // Never show a verdict that a deterministic check has proven wrong.
+    if (blockers.length) throw new chem.ChemError(`Grade rejected: ${blockers.join(" ")} Re-solve the problem, double-check the correct answer, and grade again.`);
+    const tex = (s) => { try { return mv.toTex(mv.parseExpr(s, ["x", "y", "z", "t", "n", "C", "k", "a", "b"])); } catch { return null; } };
+
     let progressNote = "";
     try {
-      await addAttempt({ ts: Date.now(), subject: args.subject, topic: args.topic, score: args.score,
-        verdict: args.verdict, problem: String(args.problem).slice(0, 160) });
+      await addAttempt({ ts: Date.now(), subject: args.subject, topic: args.topic, score: args.score, verdict: args.verdict, problem: String(args.problem).slice(0, 160) });
       const t = summarize(await getAttempts()).topics.find((x) => x.topic === args.topic);
       if (t) progressNote = ` Progress on '${t.topic}': avg ${t.avg}/100 over ${t.attempts} attempt(s).`;
     } catch (e) { console.error("progress log failed", e); }
     return {
-      content: [{ type: "text", text:
-        `Graded: ${args.verdict} (${args.score}/100).` +
-        (check ? ` Math engine: ${check.status} - ${check.detail}` : "") + note + progressNote }],
-      structuredContent: { kind: "grade", ...args, check },
+      content: [{ type: "text", text: `Graded: ${args.verdict} (${args.score}/100).` + (check ? ` Math engine: ${check.status} — ${check.detail}` : "") + " " + notes.join(" ") + progressNote }],
+      structuredContent: { kind: "grade", ...args, structures, check, studentTex: tex(args.studentAnswer), correctTex: tex(args.correctAnswer) },
     };
-  });
+  }));
 
-  // ---- Progress tracker ----
+  // ---------- Progress ----------
   server.registerTool("show_progress", {
     title: "Show my progress",
-    description:
-      "Show the student's study dashboard: graded attempts, average score, streak, per-topic " +
-      "scores and weakest topics. Use when the user asks how they're doing, what to study, " +
-      "or for a review session. Afterwards, offer practice problems targeting weakTopics.",
-    inputSchema: {
-      subject: z.string().optional().describe("Filter, e.g. 'Calculus' or 'Organic'"),
-    },
-    _meta: { ...widgetMeta, "openai/toolInvocation/invoking": "Loading your progress…", "openai/toolInvocation/invoked": "Progress loaded" },
+    description: "Show the student's math/physics/chemistry study dashboard: graded attempts, average score, streak, per-topic scores and weakest topics. Afterwards offer practice on the weakest topics." + SCOPE,
+    inputSchema: { subject: z.string().optional().describe("Filter, e.g. 'Calculus' or 'Organic'") },
+    _meta: widgetMeta("Loading your progress…", "Progress loaded"),
     annotations: { readOnlyHint: true },
-  }, async ({ subject }) => {
+  }, guarded(async ({ subject }) => {
     const stats = summarize(await getAttempts(), { subject });
     const weak = stats.weakTopics.map((t) => `${t.topic} (${t.avg})`).join(", ") || "none yet";
     return {
-      content: [{ type: "text", text:
-        `${stats.total} graded attempts, avg ${stats.avgScore}/100, ${stats.accuracy}% fully correct, ` +
-        `streak ${stats.streak} day(s). Weakest topics: ${weak}.` +
-        (persistent ? "" : " (Storage is temporary: history resets when the server restarts.)") }],
+      content: [{ type: "text", text: `${stats.total} graded attempts, avg ${stats.avgScore}/100, ${stats.accuracy}% fully correct, streak ${stats.streak} day(s). Weakest topics: ${weak}.` + (persistent ? "" : " (Storage is temporary: history resets when the server restarts.)") }],
       structuredContent: { kind: "progress", subject, ...stats },
     };
-  });
-
-  // ---- Orgo mechanisms with curved arrows ----
-  const atomRef = z.union([z.number().int().min(0), z.array(z.number().int().min(0)).length(2)]);
-  server.registerTool("draw_mechanism", {
-    title: "Draw reaction mechanism",
-    description:
-      "Draw an organic reaction mechanism step by step with curved electron-pushing arrows. " +
-      "Each step is the species present at that stage (SMILES; separate species with '.'), plus " +
-      "the arrows showing what happens next. ATOM INDEXING: atoms are numbered 0,1,2,... in " +
-      "the order they appear in that step's SMILES string (heavy atoms and bracket atoms like " +
-      "[H+] or [OH-]; implicit hydrogens are NOT counted; '.' does not reset numbering). An " +
-      "arrow endpoint is either an atom index (lone pair / charge on that atom, or the atom " +
-      "being attacked) or a pair [i, j] meaning the bond between atoms i and j. Typical: " +
-      "nucleophile atom -> electrophile atom; breaking bond [i,j] -> leaving atom. Use " +
-      "type 'fishhook' for one-electron (radical) arrows. Write SMILES so indexing is easy " +
-      "to count, and verify each index before calling. Write small neutral molecules with explicit H " +
-      "in brackets so they draw clearly (water [OH2], ammonia [NH3]). The last step usually shows products " +
-      "with no arrows.",
-    inputSchema: {
-      title: z.string().optional(),
-      steps: z.array(z.object({
-        smiles: z.string(),
-        arrows: z.array(z.object({
-          from: atomRef, to: atomRef,
-          type: z.enum(["full", "fishhook"]).optional(),
-        })).max(6).optional(),
-        label: z.string().optional().describe("e.g. 'Step 1: protonation of the carbonyl'"),
-        note: z.string().optional().describe("One-sentence explanation"),
-      })).min(1).max(8),
-      caption: z.string().optional(),
-      showAtomNumbers: z.boolean().optional().describe("Show atom indices (debugging/teaching)"),
-    },
-    _meta: { ...widgetMeta, "openai/toolInvocation/invoking": "Drawing mechanism…", "openai/toolInvocation/invoked": "Mechanism drawn" },
-    annotations: { readOnlyHint: true },
-  }, async (args) => ({
-    content: [{ type: "text", text: `Drew a ${args.steps.length}-step mechanism.` }],
-    structuredContent: { kind: "mechanism", ...args },
-  }));
-
-  // ---- Interactive calculus animations ----
-  server.registerTool("animate_concept", {
-    title: "Animate a calculus concept",
-    description:
-      "Interactive, animated visualization with a slider and play button. Types: " +
-      "'riemann' (Riemann sums converging to a definite integral: needs expr, a, b; optional " +
-      "method left/right/midpoint/trapezoid), 'secant_tangent' (secant lines approaching the " +
-      "tangent, i.e. the limit definition of the derivative: needs expr, x0), 'limit' " +
-      "(x approaching x0 from both sides with a table of values, holes shown: needs expr, x0). " +
-      "Use whenever the student is learning these ideas. math.js syntax in x.",
-    inputSchema: {
-      type: z.enum(["riemann", "secant_tangent", "limit"]),
-      expr: z.string(),
-      a: z.number().optional(), b: z.number().optional(),
-      method: z.enum(["left", "right", "midpoint", "trapezoid"]).optional(),
-      x0: z.number().optional(),
-      xMin: z.number().optional(), xMax: z.number().optional(),
-      title: z.string().optional(), caption: z.string().optional(),
-    },
-    _meta: { ...widgetMeta, "openai/toolInvocation/invoking": "Building animation…", "openai/toolInvocation/invoked": "Animation ready" },
-    annotations: { readOnlyHint: true },
-  }, async (args) => ({
-    content: [{ type: "text", text: `Showing an interactive ${args.type} animation for ${args.expr}.` }],
-    structuredContent: { kind: "animate", ...args },
   }));
 
   return server;
 }
 
-// ---- HTTP transport (stateless Streamable HTTP at /mcp) ----
 const app = express();
 app.use(express.json({ limit: "1mb" }));
-
 app.post("/mcp", async (req, res) => {
   const server = createServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

@@ -63,8 +63,12 @@ export function checkMath({ mode, studentExpr, referenceExpr, variable = "x" }) 
   } catch (e) { return { status: "error", detail: `Math engine couldn't differentiate: ${e.message}` }; }
 
   const res = numericallyEqual(left, right, variablesOf(left, right));
-  if (res.equal === true) return { status: "verified", detail: `Math engine confirms it (${what}; matched at 15 random points).` };
-  if (res.equal === false) return { status: "mismatch",
+  const texOf = (n) => { try { return n.toTex({ parenthesis: "auto", implicit: "hide" }).replace(/\\cdot(?!\s*[\d.])/g, "\\,"); } catch { return null; } };
+  const expectedTex = mode === "derivative" ? texOf(right) : mode === "antiderivative" ? null : texOf(r);
+  const yoursTex = mode === "antiderivative" ? texOf(left) : null;
+  const extra = { expectedTex, yoursTex, mode };
+  if (res.equal === true) return { ...extra, status: "verified", detail: `Math engine confirms it (${what}; matched at 15 random points).` };
+  if (res.equal === false) return { ...extra, status: "mismatch",
     detail: `Math engine says these differ (${what}). At ${fmt(res.at)}: yours gives ${+res.a.toPrecision(6)}, expected ${+res.b.toPrecision(6)}.` };
-  return { status: "inconclusive", detail: "Math engine couldn't test enough points (domain issues), so this wasn't auto-verified." };
+  return { ...extra, status: "inconclusive", detail: "Math engine couldn't test enough points (domain issues), so this wasn't auto-verified." };
 }

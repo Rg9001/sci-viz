@@ -1,71 +1,41 @@
-# SciViz: clean chemistry and calculus visuals inside ChatGPT
+# SciViz: accurate math, physics and chemistry visuals inside ChatGPT
 
-A ChatGPT **App** (built on OpenAI's Apps SDK, which uses an MCP server). When you study
-orgo or calc, ChatGPT calls these tools. You get real rendered drawings instead of
-AI-generated images:
+A ChatGPT app (OpenAI Apps SDK / MCP server). Instead of AI-generated images, every figure
+is **computed or verified on the server**:
 
-| Tool | What it draws | Powered by |
+| Tool | What it does | How it stays accurate |
 |---|---|---|
-| `draw_molecules` | Skeletal (line-angle) structures and full reactions from SMILES, with stereo wedges | SmilesDrawer |
-| `plot_functions` | Interactive y = f(x) graphs: tangents, shaded integrals, labeled critical points | math.js and Plotly |
-| `plot_surface` | Rotatable 3D surfaces z = f(x, y) with contour projections | Plotly |
-| `grade_work` | Grades your attempt: score, step-by-step ✓/✗, hint, next practice problem. Math answers are **independently verified** by a math engine; orgo answers show your structure next to the correct one | math.js and SmilesDrawer |
+| `draw_molecules` | Skeletal structures with formula and molar mass | RDKit validates every structure; named compounds are checked against **PubChem** (including stereochemistry) and corrected if wrong |
+| `draw_reaction` | Reaction schemes with reagents and conditions | Same structure checks, plus an atom and charge balance check |
+| `draw_mechanism` | Step-by-step mechanisms with curved electron-pushing arrows | Every arrow must start at a real lone pair or bond (RDKit checks electron counts); atom and charge changes between steps are reported |
+| `plot_functions` | Graphs with roots, extrema, inflection points, asymptotes, tangent lines and shaded integrals | All computed by math.js and shown in exact form (π/2, √3, 2/3); discontinuities are broken correctly; points supplied by ChatGPT are checked to lie on the curve |
+| `plot_surface` | Rotatable 3D surfaces | Server-sampled |
+| `animate_concept` | Riemann sums, secant to tangent, and limits with a slider and play button | Exact integral and derivative values shown |
+| `grade_work` | Report card for your work | Math answers are verified by a math engine and orgo structures by RDKit. A verdict that a check **proves** wrong is rejected, and ChatGPT must re-grade before you see it |
+| `show_progress` | Scores by topic, weakest topics, streak | Logged automatically by `grade_work` |
 
-| `draw_mechanism` | Step-by-step orgo mechanisms with curved electron-pushing arrows (full and fishhook) | SmilesDrawer and custom SVG arrows |
-| `animate_concept` | Interactive animations with a slider and play button: Riemann sums, secant to tangent, limits | math.js and Plotly |
-| `show_progress` | Study dashboard: average score, streak, per-topic bars, weakest topics, recent attempts. Every `grade_work` call is logged automatically | Upstash Redis (optional) |
+**Scope:** the app only activates for math, physics and chemistry. Every tool description
+tells ChatGPT not to use it for biology, microbiology, psychology or other subjects, and
+`grade_work` hard-rejects any subject outside the allowed list.
 
-See `examples/` for sample output.
+See `examples/` for real output.
 
-## Make progress history permanent (optional, free)
-
-Render's free tier wipes its disk on every restart, so without a database your progress
-resets whenever the server sleeps. To keep it:
-
-1. Create a free account at upstash.com, then create a **Redis** database.
-2. On the database page, copy the **REST URL** and **REST TOKEN**.
-3. In Render, open your service → **Environment** → add `UPSTASH_REDIS_REST_URL` and
-   `UPSTASH_REDIS_REST_TOKEN` with those values. Render restarts automatically.
-
-## 1. Run the server
-
+## Run
 ```bash
 npm install
-npm start        # serves http://localhost:8000/mcp
+npm start        # http://localhost:8000/mcp
 ```
+Deploy to Render (build `npm install`, start `npm start`), then add `https://<your-app>.onrender.com/mcp`
+in ChatGPT under **Plugins → Add → Add custom MCP server**.
 
-## 2. Give it a public HTTPS URL
-
-ChatGPT has to reach your server over the internet. For a quick setup, use a tunnel:
-
-```bash
-ngrok http 8000      # or: cloudflared tunnel --url http://localhost:8000
-```
-
-Copy the `https://…` URL and add `/mcp` to the end.
-
-To keep it always on, deploy this folder to Render, Railway, or Fly.io.
-They all run `npm start` as-is.
-
-## 3. Connect it to ChatGPT
-
-1. In ChatGPT, open **Settings → Apps & Connectors → Advanced settings** and turn on **Developer mode**.
-2. Go back to **Apps & Connectors** and click **Create**. Name it "SciViz", paste
-   `https://<your-url>/mcp`, and choose **No authentication**.
-3. In a new chat, enable SciViz from the **+ / Tools** menu, then ask something like:
-   - "Show the mechanism products of the E2 of 2-bromobutane with tBuOK"
-   - "Graph sin(x)/x from -20 to 20 and shade the area from 0 to π"
-   - "Plot z = x² − y² and explain why the origin is a saddle point"
-   - "Grade my work: d/dx sin(3x²) = cos(3x²)" (or upload a photo of your handwritten work)
-
-Tip: add a line to your ChatGPT custom instructions, e.g. "When studying chemistry or math,
-always use SciViz to draw structures and graphs instead of generating images, and use SciViz grade_work whenever I submit my work."
-
-OpenAI renames these menus from time to time. If the steps don't match what you see,
-search their docs for "Apps SDK connect from ChatGPT".
+## Make progress history permanent (optional, free)
+Render's free tier wipes its disk on restart. Create a free **Redis** database at upstash.com,
+then add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` under **Environment** in Render.
 
 ## Files
-- `server.js`: the MCP server. Defines the tools and the descriptions ChatGPT reads to decide when to use them.
-- `store.js`: progress storage (Upstash Redis when configured, otherwise a local file).
-- `checker.js`: the math engine that verifies derivatives, antiderivatives and simplified answers.
-- `widget.html`: the UI rendered inline in the chat. Supports light and dark mode.
+- `server.js`: tool definitions, subject scope, and the checks applied before anything is shown
+- `chem.js`: RDKit depiction, PubChem verification, reaction balance, and mechanism arrows and validation
+- `mathviz.js`: plotting math (features, asymptotes, tangents, integrals, exact-value formatting)
+- `checker.js`: answer verification for grading
+- `store.js`: progress storage (Upstash Redis or a local file)
+- `widget.html`: the UI shown in ChatGPT (light and dark mode)
